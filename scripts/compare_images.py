@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare two directories of frame_*.png files from capture_vkquake3.sh.
+"""Compare two directories of frame_*.png and scene_*.png files from capture_vkquake3.sh.
 
 For each frame, the script prints the largest channel difference and the
 percentage of pixels that differ by more than the threshold. It exits with
@@ -40,6 +40,11 @@ def compare(ref_path, test_path, threshold):
     return max_diff, different, ref.size[0] * ref.size[1], diff
 
 
+def captured_images(directory):
+    """Return the sorted demo frames and scene screenshots in a directory."""
+    return sorted(list(directory.glob("frame_*.png")) + list(directory.glob("scene_*.png")))
+
+
 def main():
     parser = argparse.ArgumentParser(description="Compare two capture directories.")
     parser.add_argument("-t", "--threshold", type=int, default=0)
@@ -49,9 +54,9 @@ def main():
     parser.add_argument("test_dir", type=pathlib.Path)
     args = parser.parse_args()
 
-    ref_frames = sorted(args.ref_dir.glob("frame_*.png"))
+    ref_frames = captured_images(args.ref_dir)
     if not ref_frames:
-        print(f"No frame_*.png files in {args.ref_dir}", file=sys.stderr)
+        print(f"No frame_*.png or scene_*.png files in {args.ref_dir}", file=sys.stderr)
         return 1
 
     failed = 0
@@ -78,14 +83,15 @@ def main():
                 args.diff_dir.mkdir(parents=True, exist_ok=True)
                 diff.save(args.diff_dir / ref_path.name)
 
-    extra = sorted(set(p.name for p in args.test_dir.glob("frame_*.png"))
+    extra = sorted(set(p.name for p in captured_images(args.test_dir))
                    - set(p.name for p in ref_frames))
     for name in extra:
         print(f"{name}: not in the reference")
-        failed += 1
 
-    print(f"{len(ref_frames) - failed} of {len(ref_frames)} frames pass")
-    return 1 if failed else 0
+    print(f"{len(ref_frames) - failed} of {len(ref_frames)} images pass")
+    if extra:
+        print(f"{len(extra)} images are not in the reference")
+    return 1 if failed or extra else 0
 
 
 if __name__ == "__main__":
