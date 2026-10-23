@@ -1,7 +1,12 @@
 #version 450
 
 // 128 bytes
+#ifdef GAPI_WEBGPU
+// WebGPU has no push constants: a uniform buffer with a dynamic offset.
+layout(set = 0, binding = 0) uniform Transform {
+#else
 layout(push_constant) uniform Transform {
+#endif
     mat4x4 clip_space_xform;
     // a single-precision floating-point matrix with 3 columns and 4 rows
     mat3x4 eye_space_xform;
@@ -31,4 +36,10 @@ void main() {
 
     frag_color = in_color;
     frag_tex_coord = in_tex_coord;
+
+#ifdef GAPI_WEBGPU
+    // The matrices are for the Vulkan clip space, with Y down. The WebGPU
+    // clip space has Y up.
+    gl_Position.y = -gl_Position.y;
+#endif
 }
