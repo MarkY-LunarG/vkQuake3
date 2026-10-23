@@ -104,6 +104,6 @@ void R_DebugGraphics( void )
 		R_IssueRenderCommands( qfalse );
 	}
 
-	updateCurDescriptor( tr.whiteImage->descriptor_set, 0);
+	updateCurDescriptor( tr.whiteImage->tex, 0);
 	ri.CM_DrawDebugSurface( R_DebugPolygon );
 }

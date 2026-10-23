@@ -320,14 +320,14 @@ void vk_createIndexBuffer(void)
 
 
 
-void updateCurDescriptor( VkDescriptorSet curDesSet, uint32_t tmu)
+void updateCurDescriptor( const gapi_texture_t* tex, uint32_t tmu)
 {
-    shadingDat.curDescriptorSets[tmu] = curDesSet;
+    shadingDat.curDescriptorSets[tmu] = tex->descriptor_set;
 }
 
 
 
-void vk_shade_geometry(VkPipeline pipeline, qboolean multitexture, enum Vk_Depth_Range depRg, qboolean indexed)
+void vk_shade_geometry(const gapi_pipeline_t* pipeline, qboolean multitexture, enum Vk_Depth_Range depRg, qboolean indexed)
 {
 	// configure vertex data stream
 	VkBuffer bufs[3] = { shadingDat.vertex_buffer, shadingDat.vertex_buffer, shadingDat.vertex_buffer };
@@ -370,7 +370,7 @@ void vk_shade_geometry(VkPipeline pipeline, qboolean multitexture, enum Vk_Depth
         vk.pipeline_layout, 0, (multitexture ? 2 : 1), shadingDat.curDescriptorSets, 0, NULL);
 
     // bind pipeline
-	qvkCmdBindPipeline(vk.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+	qvkCmdBindPipeline(vk.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
 
 	// configure pipeline's dynamic state
 
@@ -1087,7 +1087,7 @@ static void ProjectDlightTexture( void )
 		}
 
 
-		updateCurDescriptor( tr.dlightImage->descriptor_set, 0 );
+		updateCurDescriptor( tr.dlightImage->tex, 0 );
 		// include GLS_DEPTHFUNC_EQUAL so alpha tested surfaces don't add light where they aren't rendered
 		backEnd.pc.c_totalIndexes += numIndexes;
 		backEnd.pc.c_dlightIndexes += numIndexes;
@@ -1125,12 +1125,12 @@ static void RB_FogPass( void ) {
 
 	RB_CalcFogTexCoords( ( float * ) tess.svars.texcoords[0] );
 
-	updateCurDescriptor( tr.fogImage->descriptor_set, 0);
+	updateCurDescriptor( tr.fogImage->tex, 0);
 
 	// VULKAN
 
     assert(tess.shader->fogPass > 0);
-    VkPipeline pipeline = g_stdPipelines.fog_pipelines[tess.shader->fogPass - 1][tess.shader->cullType][tess.shader->polygonOffset];
+    const gapi_pipeline_t* pipeline = g_stdPipelines.fog_pipelines[tess.shader->fogPass - 1][tess.shader->cullType][tess.shader->polygonOffset];
     vk_shade_geometry(pipeline, qfalse, DEPTH_RANGE_NORMAL, qtrue);
 }
 
@@ -1180,7 +1180,7 @@ void RB_StageIteratorGeneric( void )
 
         if ( numAnimaImg <= 1 )
         {
-		    updateCurDescriptor( tess.xstages[stage]->bundle[0].image[0]->descriptor_set, 0);
+		    updateCurDescriptor( tess.xstages[stage]->bundle[0].image[0]->tex, 0);
             //GL_Bind(tess.xstages[stage]->bundle[0].image[0]);
             goto ENDANIMA;
 	    }
@@ -1195,7 +1195,7 @@ void RB_StageIteratorGeneric( void )
 
 	    index %= numAnimaImg;
 
-	    updateCurDescriptor( tess.xstages[stage]->bundle[0].image[ index ]->descriptor_set, 0);
+	    updateCurDescriptor( tess.xstages[stage]->bundle[0].image[ index ]->tex, 0);
         //GL_Bind(tess.xstages[stage]->bundle[0].image[ index ]);
     }
     
@@ -1223,7 +1223,7 @@ ENDANIMA:
             }
 
             if ( tess.xstages[stage]->bundle[1].numImageAnimations <= 1 ) {
-                updateCurDescriptor( tess.xstages[stage]->bundle[1].image[0]->descriptor_set, 1);
+                updateCurDescriptor( tess.xstages[stage]->bundle[1].image[0]->tex, 1);
                 goto END_ANIMA2;
             }
 
@@ -1237,12 +1237,12 @@ ENDANIMA:
 	        
             index2 %= tess.xstages[stage]->bundle[1].numImageAnimations;
 
-            updateCurDescriptor( tess.xstages[stage]->bundle[1].image[ index2 ]->descriptor_set , 1);
+            updateCurDescriptor( tess.xstages[stage]->bundle[1].image[ index2 ]->tex , 1);
 
 END_ANIMA2:
 
             if (r_lightmap->integer)
-                updateCurDescriptor(tr.whiteImage->descriptor_set, 0); 
+                updateCurDescriptor(tr.whiteImage->tex, 0); 
             
             // replace diffuse texture with a white one thus effectively render only lightmap
 		}
@@ -1263,15 +1263,15 @@ END_ANIMA2:
         
         if (backEnd.viewParms.isMirror)
         {
-            vk_shade_geometry(tess.xstages[stage]->vk_mirror_pipeline, multitexture, depth_range, qtrue);
+            vk_shade_geometry(tess.xstages[stage]->mirrorPipeline, multitexture, depth_range, qtrue);
         }
         else if (backEnd.viewParms.isPortal)
         {
-            vk_shade_geometry(tess.xstages[stage]->vk_portal_pipeline, multitexture, depth_range, qtrue);
+            vk_shade_geometry(tess.xstages[stage]->portalPipeline, multitexture, depth_range, qtrue);
         }
         else
         {
-            vk_shade_geometry(tess.xstages[stage]->vk_pipeline, multitexture, depth_range, qtrue);
+            vk_shade_geometry(tess.xstages[stage]->pipeline, multitexture, depth_range, qtrue);
         }
 
                 

@@ -652,7 +652,7 @@ void RB_StageIteratorSky( void )
 
             // VULKAN: draw skybox side
 
-            updateCurDescriptor(tess.shader->sky.outerbox[sky_texorder[i]]->descriptor_set, 0);
+            updateCurDescriptor(tess.shader->sky.outerbox[sky_texorder[i]]->tex, 0);
 
             tess.numVertexes = 0;
             tess.numIndexes = 0;

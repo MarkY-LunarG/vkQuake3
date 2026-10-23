@@ -31,7 +31,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "tr_image.h"
 
-#include "VKimpl.h"
+#include "graphics_api/gapi.h"
 
 
 
@@ -245,9 +245,9 @@ typedef struct {
 	qboolean		isDetail;
 
 	// VULKAN
-	VkPipeline		vk_pipeline;
-	VkPipeline		vk_portal_pipeline;
-	VkPipeline		vk_mirror_pipeline;
+	gapi_pipeline_t*	pipeline;			// normal view
+	gapi_pipeline_t*	portalPipeline;		// portal view, with a clip plane
+	gapi_pipeline_t*	mirrorPipeline;		// mirror view
 
 } shaderStage_t;
 

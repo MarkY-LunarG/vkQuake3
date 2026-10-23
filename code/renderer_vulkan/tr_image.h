@@ -1,7 +1,7 @@
 #ifndef TR_IMAGE_H_
 #define TR_IMAGE_H_
 
-#include "VKimpl.h"
+#include "graphics_api/gapi.h"
 
 
 typedef struct image_s {
@@ -11,20 +11,10 @@ typedef struct image_s {
 
     uint32_t    index;
 
-	VkImage handle;
-    // To use any VkImage, including those in the swap chain, int the render pipeline
-    // we have to create a VkImageView object. An image view is quite literally a
-    // view into image. It describe how to access the image and witch part of the
-    // image to access, if it should be treated as a 2D texture depth texture without
-    // any mipmapping levels.
-    
-    VkImageView view;
+    // The graphics API texture. The graphics API owns it.
+    gapi_texture_t* tex;
 
-    // Descriptor set that contains single descriptor used to access the given image.
-	// It is updated only once during image initialization.
-	VkDescriptorSet descriptor_set;
-
-    int			wrapClampMode;		// GL_CLAMP or GL_REPEAT, for vulkan
+    int			wrapClampMode;		// GL_CLAMP or GL_REPEAT
     qboolean    mipmap;
     uint32_t    mipLevels;			// gl texture binding
     qboolean    allowPicmip;

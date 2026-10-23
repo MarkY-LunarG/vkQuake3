@@ -2,6 +2,7 @@
 #include "vk_instance.h"
 #include "vk_shaders.h"
 #include "vk_pipelines.h"
+#include "vk_gapi_types.h"
 #include "tr_shader.h"
 // The graphics pipeline is the sequence of operations that take the vertices
 // and textures of your meshes all the way to the pixels in the render targets
@@ -65,6 +66,15 @@ struct GlobalPipelineManager g_stdPipelines;
 #define MAX_VK_PIPELINES        1024
 static struct Vk_Pipeline_Def s_pipeline_defs[MAX_VK_PIPELINES];
 static uint32_t s_numPipelines = 0;
+
+// The handles of the Q3 shader stage pipelines, at the same index as
+// s_pipeline_defs.
+static struct gapi_pipeline_s s_stagePipelines[MAX_VK_PIPELINES];
+
+// The handles of the standard pipelines in g_stdPipelines.
+#define MAX_STD_PIPELINES       64
+static struct gapi_pipeline_s s_stdPipelines[MAX_STD_PIPELINES];
+static uint32_t s_numStdPipelines = 0;
 
 
 void R_PipelineList_f(void)
@@ -655,7 +665,7 @@ static void vk_create_pipeline(const struct Vk_Pipeline_Def* def, VkPipeline* pP
 
 
 
-static VkPipeline vk_find_pipeline(struct Vk_Pipeline_Def* def)
+static gapi_pipeline_t* vk_find_pipeline(struct Vk_Pipeline_Def* def)
 {
     uint32_t i = 0;
 	for (i = 0; i < s_numPipelines; i++)
@@ -670,7 +680,7 @@ static VkPipeline vk_find_pipeline(struct Vk_Pipeline_Def* def)
 			// && s_pipeline_defs[i].shadow_phase == def->shadow_phase
             )
 		{
-			return s_pipeline_defs[i].pipeline;
+			return &s_stagePipelines[i];
 		}
 	}
 
@@ -680,12 +690,27 @@ static VkPipeline vk_find_pipeline(struct Vk_Pipeline_Def* def)
     
 	s_pipeline_defs[s_numPipelines] = *def;
 	//s_pipeline_defs[s_numPipelines].pipeline = pipeline;
+	gapi_pipeline_t* handle = &s_stagePipelines[s_numPipelines];
+	handle->pipeline = def->pipeline;
 
     if (++s_numPipelines >= MAX_VK_PIPELINES)
     {
 		ri.Error(ERR_DROP, "vk_create_pipeline: MAX_VK_PIPELINES hit\n");
 	}
-	return def->pipeline;
+	return handle;
+}
+
+
+static void vk_create_std_pipeline(const struct Vk_Pipeline_Def* def, gapi_pipeline_t** pHandle)
+{
+    if (s_numStdPipelines >= MAX_STD_PIPELINES)
+    {
+        ri.Error(ERR_FATAL, "vk_create_std_pipeline: MAX_STD_PIPELINES hit\n");
+    }
+
+    gapi_pipeline_t* handle = &s_stdPipelines[s_numStdPipelines++];
+    vk_create_pipeline(def, &handle->pipeline);
+    *pHandle = handle;
 }
 
 
@@ -711,17 +736,17 @@ void create_pipelines_for_each_stage(shaderStage_t *pStage, shader_t* pShader)
 
     def.clipping_plane = VK_FALSE;
     def.mirror = VK_FALSE;
-    pStage->vk_pipeline = vk_find_pipeline(&def);
+    pStage->pipeline = vk_find_pipeline(&def);
 
 
     def.clipping_plane = VK_TRUE;
     def.mirror = VK_FALSE;
-    pStage->vk_portal_pipeline = vk_find_pipeline(&def);
+    pStage->portalPipeline = vk_find_pipeline(&def);
 
 
     def.clipping_plane = VK_TRUE;
     def.mirror = VK_TRUE;
-    pStage->vk_mirror_pipeline = vk_find_pipeline(&def);
+    pStage->mirrorPipeline = vk_find_pipeline(&def);
 }
 
 
@@ -742,7 +767,7 @@ void create_standard_pipelines(void)
         def.clipping_plane = VK_FALSE;
         def.mirror = VK_FALSE;
         
-        vk_create_pipeline(&def, &g_stdPipelines.skybox_pipeline);
+        vk_create_std_pipeline(&def, &g_stdPipelines.skybox_pipeline);
     }
 
     ri.Printf(PRINT_ALL, " Create Q3 stencil shadows pipeline \n");
@@ -771,7 +796,7 @@ void create_standard_pipelines(void)
                 {
                     def.mirror = mirror_flags[j];
                     
-                    vk_create_pipeline(&def, &g_stdPipelines.shadow_volume_pipelines[i][j]);
+                    vk_create_std_pipeline(&def, &g_stdPipelines.shadow_volume_pipelines[i][j]);
                 }
             }
         }
@@ -788,7 +813,7 @@ void create_standard_pipelines(void)
             def.mirror = VK_FALSE;
             def.shadow_phase = SHADOWS_RENDERING_FULLSCREEN_QUAD;
             
-            vk_create_pipeline(&def, &g_stdPipelines.shadow_finish_pipeline);
+            vk_create_std_pipeline(&def, &g_stdPipelines.shadow_finish_pipeline);
         }
     }
 
@@ -830,10 +855,10 @@ void create_standard_pipelines(void)
                     def.polygon_offset = polygon_offset[k];
 
                     def.state_bits = fog_state;
-                    vk_create_pipeline(&def, &g_stdPipelines.fog_pipelines[i][j][k]);
+                    vk_create_std_pipeline(&def, &g_stdPipelines.fog_pipelines[i][j][k]);
 
                     def.state_bits = dlight_state;
-                    vk_create_pipeline(&def, &g_stdPipelines.dlight_pipelines[i][j][k]);
+                    vk_create_std_pipeline(&def, &g_stdPipelines.dlight_pipelines[i][j][k]);
                 }
             }
         }
@@ -847,7 +872,7 @@ void create_standard_pipelines(void)
         memset(&def, 0, sizeof(def));
 
         def.state_bits = GLS_POLYMODE_LINE | GLS_DEPTHMASK_TRUE;
-        vk_create_pipeline(&def, &g_stdPipelines.tris_debug_pipeline);
+        vk_create_std_pipeline(&def, &g_stdPipelines.tris_debug_pipeline);
     }
 
     
@@ -858,7 +883,7 @@ void create_standard_pipelines(void)
 
         def.state_bits = GLS_POLYMODE_LINE | GLS_DEPTHMASK_TRUE;
         def.face_culling = CT_BACK_SIDED;
-        vk_create_pipeline(&def, &g_stdPipelines.tris_mirror_debug_pipeline);
+        vk_create_std_pipeline(&def, &g_stdPipelines.tris_mirror_debug_pipeline);
     }
 
     ri.Printf(PRINT_ALL, " Create normals debug pipeline \n");
@@ -868,7 +893,7 @@ void create_standard_pipelines(void)
 
         def.state_bits = GLS_DEPTHMASK_TRUE;
         def.line_primitives = VK_TRUE;
-        vk_create_pipeline(&def, &g_stdPipelines.normals_debug_pipeline);
+        vk_create_std_pipeline(&def, &g_stdPipelines.normals_debug_pipeline);
     }
 
 
@@ -878,7 +903,7 @@ void create_standard_pipelines(void)
         memset(&def, 0, sizeof(def));
 
         def.state_bits = GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE;
-        vk_create_pipeline(&def, &g_stdPipelines.surface_debug_pipeline_solid);
+        vk_create_std_pipeline(&def, &g_stdPipelines.surface_debug_pipeline_solid);
     }
 
     ri.Printf(PRINT_ALL, " Create surface debug outline pipeline \n");
@@ -888,7 +913,7 @@ void create_standard_pipelines(void)
 
         def.state_bits = GLS_POLYMODE_LINE | GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE;
         def.line_primitives = VK_TRUE;
-        vk_create_pipeline(&def, &g_stdPipelines.surface_debug_pipeline_outline);
+        vk_create_std_pipeline(&def, &g_stdPipelines.surface_debug_pipeline_outline);
     }
     
     ri.Printf(PRINT_ALL, " Create images debug pipeline \n");
@@ -897,7 +922,7 @@ void create_standard_pipelines(void)
         memset(&def, 0, sizeof(def));
 
         def.state_bits = GLS_DEPTHTEST_DISABLE | GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
-        vk_create_pipeline(&def, &g_stdPipelines.images_debug_pipeline);
+        vk_create_std_pipeline(&def, &g_stdPipelines.images_debug_pipeline);
     }
 }
 
@@ -911,6 +936,7 @@ void vk_destroyShaderStagePipeline(void)
     {
 		qvkDestroyPipeline(vk.device, s_pipeline_defs[i].pipeline, NULL);
         memset(&s_pipeline_defs[i], 0, sizeof(struct Vk_Pipeline_Def));
+        memset(&s_stagePipelines[i], 0, sizeof(struct gapi_pipeline_s));
     }
     s_numPipelines = 0;
 }
@@ -918,7 +944,7 @@ void vk_destroyShaderStagePipeline(void)
 
 void vk_destroyGlobalStagePipeline(void)
 {
-    int i, j, k;
+    uint32_t i;
 
 	qvkDestroyDescriptorSetLayout(vk.device, vk.set_layout, NULL); 
     qvkDestroyPipelineLayout(vk.device, vk.pipeline_layout, NULL);
@@ -927,28 +953,11 @@ void vk_destroyGlobalStagePipeline(void)
     // is destroyed.
    	qvkDestroyDescriptorPool(vk.device, vk.descriptor_pool, NULL);    
     // 
-    qvkDestroyPipeline(vk.device, g_stdPipelines.skybox_pipeline, NULL);
-	for (i = 0; i < 2; i++)
-		for (j = 0; j < 2; j++)
-        {
-			qvkDestroyPipeline(vk.device, g_stdPipelines.shadow_volume_pipelines[i][j], NULL);
-		}
-	
-    qvkDestroyPipeline(vk.device, g_stdPipelines.shadow_finish_pipeline, NULL);
-	
-    
-    for (i = 0; i < 2; i++)
-		for (j = 0; j < 3; j++)
-			for (k = 0; k < 2; k++)
-            {
-				qvkDestroyPipeline(vk.device, g_stdPipelines.fog_pipelines[i][j][k], NULL);
-				qvkDestroyPipeline(vk.device, g_stdPipelines.dlight_pipelines[i][j][k], NULL);
-			}
-
-	qvkDestroyPipeline(vk.device, g_stdPipelines.tris_debug_pipeline, NULL);
-	qvkDestroyPipeline(vk.device, g_stdPipelines.tris_mirror_debug_pipeline, NULL);
-	qvkDestroyPipeline(vk.device, g_stdPipelines.normals_debug_pipeline, NULL);
-	qvkDestroyPipeline(vk.device, g_stdPipelines.surface_debug_pipeline_solid, NULL);
-	qvkDestroyPipeline(vk.device, g_stdPipelines.surface_debug_pipeline_outline, NULL);
-	qvkDestroyPipeline(vk.device, g_stdPipelines.images_debug_pipeline, NULL);
+    for (i = 0; i < s_numStdPipelines; i++)
+    {
+        qvkDestroyPipeline(vk.device, s_stdPipelines[i].pipeline, NULL);
+    }
+    memset(s_stdPipelines, 0, sizeof(s_stdPipelines));
+    s_numStdPipelines = 0;
+    memset(&g_stdPipelines, 0, sizeof(g_stdPipelines));
 }

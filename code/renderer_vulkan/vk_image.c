@@ -4,6 +4,7 @@
 #include "vk_image.h"
 #include "vk_cmd.h"
 #include "vk_instance.h"
+#include "vk_gapi_types.h"
 #include "tr_globals.h"
 #include "tr_cvar.h"
 #include "tr_fog.h"
@@ -285,13 +286,13 @@ static void vk_createImageAndBindWithMemory(image_t* pImg)
     desc.pQueueFamilyIndices = NULL;
     desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
-    VK_CHECK(qvkCreateImage(vk.device, &desc, NULL, &pImg->handle));
+    VK_CHECK(qvkCreateImage(vk.device, &desc, NULL, &pImg->tex->handle));
 
     // =======================================================
     // Binding it with device local memory
     // =======================================================
     VkMemoryRequirements memory_requirements;
-    qvkGetImageMemoryRequirements(vk.device, pImg->handle, &memory_requirements);
+    qvkGetImageMemoryRequirements(vk.device, pImg->tex->handle, &memory_requirements);
     
     // ensure that memory region has proper alignment
     uint32_t mask = (memory_requirements.alignment - 1);
@@ -305,7 +306,7 @@ static void vk_createImageAndBindWithMemory(image_t* pImg)
         VkDeviceSize end = offset_aligned + memory_requirements.size;
 		if (end <= IMAGE_CHUNK_SIZE)
         {
-            VK_CHECK(qvkBindImageMemory(vk.device, pImg->handle, 
+            VK_CHECK(qvkBindImageMemory(vk.device, pImg->tex->handle, 
                         devMemImg.Chunks[i].block, offset_aligned));
 
 			devMemImg.Chunks[i].Used = end;
@@ -324,7 +325,7 @@ static void vk_createImageAndBindWithMemory(image_t* pImg)
 
     VkDeviceMemory memory;
     VK_CHECK(qvkAllocateMemory(vk.device, &alloc_info, NULL, &memory));
-    VK_CHECK(qvkBindImageMemory(vk.device, pImg->handle, memory, 0));
+    VK_CHECK(qvkBindImageMemory(vk.device, pImg->tex->handle, memory, 0));
 
     devMemImg.Chunks[devMemImg.Index].block = memory;
     devMemImg.Chunks[devMemImg.Index].Used = memory_requirements.size;
@@ -353,7 +354,7 @@ static void vk_createImageViewAndDescriptorSet(image_t* pImage)
     desc.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     desc.pNext = NULL;
     desc.flags = 0;
-    desc.image = pImage->handle;
+    desc.image = pImage->tex->handle;
     desc.viewType = VK_IMAGE_VIEW_TYPE_2D;
     // format is a VkFormat describing the format and type used 
     // to interpret data elements in the image.
@@ -389,7 +390,7 @@ static void vk_createImageViewAndDescriptorSet(image_t* pImage)
     VK_CHECK(qvkCreateImageView(vk.device, &desc, NULL, &imageView));
 
     /////  save it just for destroy ???
-    pImage->view = imageView;
+    pImage->tex->view = imageView;
 
 
     ///////////////////////////////////////////////////////
@@ -412,7 +413,7 @@ static void vk_createImageViewAndDescriptorSet(image_t* pImage)
     VK_CHECK(qvkAllocateDescriptorSets(vk.device, &descSetAllocInfo, &desSet));
     
     /////  save it for destroy and update current descriptor
-    pImage->descriptor_set = desSet;
+    pImage->tex->descriptor_set = desSet;
 
     //ri.Printf(PRINT_ALL, " Allocate Descriptor Sets \n");
     VkWriteDescriptorSet descriptor_write;
@@ -448,6 +449,10 @@ static void vk_createImageViewAndDescriptorSet(image_t* pImage)
 
 
 
+// The Vulkan objects of each image, at the index of the image.
+static struct gapi_texture_s s_textures[MAX_DRAWIMAGES];
+
+
 image_t* R_CreateImage( const char *name, unsigned char* pic, const uint32_t width, const uint32_t height,
 						qboolean isMipMap, qboolean allowPicmip, int glWrapClampMode)
 {
@@ -464,6 +469,7 @@ image_t* R_CreateImage( const char *name, unsigned char* pic, const uint32_t wid
 
     strncpy (pImage->imgName, name, sizeof(pImage->imgName));
     pImage->index = tr.numImages;
+    pImage->tex = &s_textures[pImage->index];
     pImage->mipmap = isMipMap;
     pImage->mipLevels = 1;
     pImage->allowPicmip = allowPicmip;
@@ -659,7 +665,7 @@ image_t* R_CreateImage( const char *name, unsigned char* pic, const uint32_t wid
 
     free(pUploadBuffer);
 
-    vk_stagBufferToDeviceLocalMem(pImage->handle, regions, pImage->mipLevels);
+    vk_stagBufferToDeviceLocalMem(pImage->tex->handle, regions, pImage->mipLevels);
 
     const int hash = generateHashValue(name);
     pImage->next = hashTable[hash];
@@ -756,9 +762,9 @@ void RE_UploadCinematic (int w, int h, int cols, int rows, const unsigned char *
         prtImage->mipLevels = 1;
         // VULKAN
 
-        qvkDestroyImage(vk.device, prtImage->handle, NULL);
-        qvkDestroyImageView(vk.device, prtImage->view, NULL);
-        qvkFreeDescriptorSets(vk.device, vk.descriptor_pool, 1, &prtImage->descriptor_set);
+        qvkDestroyImage(vk.device, prtImage->tex->handle, NULL);
+        qvkDestroyImageView(vk.device, prtImage->tex->view, NULL);
+        qvkFreeDescriptorSets(vk.device, vk.descriptor_pool, 1, &prtImage->tex->descriptor_set);
         
         vk_createImageAndBindWithMemory(prtImage);
 
@@ -787,14 +793,14 @@ void RE_UploadCinematic (int w, int h, int cols, int rows, const unsigned char *
         memcpy(pDat, data, buffer_size);
         qvkUnmapMemory(vk.device, StagBuf.mappableMem);
 
-        vk_stagBufferToDeviceLocalMem(tr.scratchImage[client]->handle, &region, 1);
+        vk_stagBufferToDeviceLocalMem(tr.scratchImage[client]->tex->handle, &region, 1);
     }
     else if (dirty)
     {
         // otherwise, just subimage upload it so that
         // drivers can tell we are going to be changing
         // it and don't try and do a texture compression       
-        // vk_uploadSingleImage(prtImage->handle, cols, rows, data);
+        // vk_uploadSingleImage(prtImage->tex->handle, cols, rows, data);
 
         VkBufferImageCopy region;
         region.bufferOffset = 0;
@@ -818,7 +824,7 @@ void RE_UploadCinematic (int w, int h, int cols, int rows, const unsigned char *
         memcpy(pDat, data, buffer_size);
         qvkUnmapMemory(vk.device, StagBuf.mappableMem);
 
-        vk_stagBufferToDeviceLocalMem(tr.scratchImage[client]->handle, &region, 1);
+        vk_stagBufferToDeviceLocalMem(tr.scratchImage[client]->tex->handle, &region, 1);
     }
 }
 
@@ -1001,18 +1007,18 @@ static void vk_destroySingleImage( image_t* pImg )
 {
 
    	ri.Printf(PRINT_ALL, " Destroy Image: %s \n", pImg->imgName); 
-    if(pImg->descriptor_set != VK_NULL_HANDLE)
+    if(pImg->tex->descriptor_set != VK_NULL_HANDLE)
     {   
         //To free allocated descriptor sets
-        qvkFreeDescriptorSets(vk.device, vk.descriptor_pool, 1, &pImg->descriptor_set);
-        pImg->descriptor_set = VK_NULL_HANDLE;
+        qvkFreeDescriptorSets(vk.device, vk.descriptor_pool, 1, &pImg->tex->descriptor_set);
+        pImg->tex->descriptor_set = VK_NULL_HANDLE;
     }
 
-    if (pImg->handle != VK_NULL_HANDLE)
+    if (pImg->tex->handle != VK_NULL_HANDLE)
     {
-        qvkDestroyImageView(vk.device, pImg->view, NULL);
-        qvkDestroyImage(vk.device, pImg->handle, NULL);
-        pImg->handle = VK_NULL_HANDLE;
+        qvkDestroyImageView(vk.device, pImg->tex->view, NULL);
+        qvkDestroyImage(vk.device, pImg->tex->handle, NULL);
+        pImg->tex->handle = VK_NULL_HANDLE;
     }
 }
 
@@ -1045,6 +1051,7 @@ void vk_destroyImageRes(void)
     VK_CHECK(qvkResetDescriptorPool(vk.device, vk.descriptor_pool, 0));
 
     memset( tr.images, 0, sizeof( tr.images ) );
+    memset( s_textures, 0, sizeof( s_textures ) );
     tr.numImages = 0;
 
     memset(hashTable, 0, sizeof(hashTable));

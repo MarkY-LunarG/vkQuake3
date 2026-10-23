@@ -16,30 +16,30 @@ struct GlobalPipelineManager {
 	//
 	// Standard pipelines.
 	//
-	VkPipeline skybox_pipeline;
+	gapi_pipeline_t* skybox_pipeline;
 
 	// dim 0: 0 - front side, 1 - back size
 	// dim 1: 0 - normal view, 1 - mirror view
-	VkPipeline shadow_volume_pipelines[2][2];
-	VkPipeline shadow_finish_pipeline;
+	gapi_pipeline_t* shadow_volume_pipelines[2][2];
+	gapi_pipeline_t* shadow_finish_pipeline;
 
 	// dim 0 is based on fogPass_t: 0 - corresponds to FP_EQUAL, 1 - corresponds to FP_LE.
 	// dim 1 is directly a cullType_t enum value.
 	// dim 2 is a polygon offset value (0 - off, 1 - on).
-	VkPipeline fog_pipelines[2][3][2];
+	gapi_pipeline_t* fog_pipelines[2][3][2];
 
 	// dim 0 is based on dlight additive flag: 0 - not additive, 1 - additive
 	// dim 1 is directly a cullType_t enum value.
 	// dim 2 is a polygon offset value (0 - off, 1 - on).
-	VkPipeline dlight_pipelines[2][3][2];
+	gapi_pipeline_t* dlight_pipelines[2][3][2];
 
 	// debug visualization pipelines
-	VkPipeline tris_debug_pipeline;
-	VkPipeline tris_mirror_debug_pipeline;
-	VkPipeline normals_debug_pipeline;
-	VkPipeline surface_debug_pipeline_solid;
-	VkPipeline surface_debug_pipeline_outline;
-	VkPipeline images_debug_pipeline;
+	gapi_pipeline_t* tris_debug_pipeline;
+	gapi_pipeline_t* tris_mirror_debug_pipeline;
+	gapi_pipeline_t* normals_debug_pipeline;
+	gapi_pipeline_t* surface_debug_pipeline_solid;
+	gapi_pipeline_t* surface_debug_pipeline_outline;
+	gapi_pipeline_t* images_debug_pipeline;
 };
 
 extern struct GlobalPipelineManager g_stdPipelines;

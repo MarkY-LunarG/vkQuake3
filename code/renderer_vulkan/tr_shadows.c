@@ -107,7 +107,7 @@ static void R_ExtrudeShadowEdges( void ) {
 
 
 // VULKAN
-static void vk_renderShadowEdges(VkPipeline vk_pipeline)
+static void vk_renderShadowEdges(const gapi_pipeline_t* pipeline)
 {
 
 	int i = 0;
@@ -141,7 +141,7 @@ static void vk_renderShadowEdges(VkPipeline vk_pipeline)
         vk_UploadXYZI(tess.xyz, tess.numVertexes, tess.indexes, tess.numIndexes);
         updateMVP(backEnd.viewParms.isPortal, backEnd.projection2D, getptr_modelview_matrix());
 
-        vk_shade_geometry(vk_pipeline, qfalse, DEPTH_RANGE_NORMAL, qtrue);
+        vk_shade_geometry(pipeline, qfalse, DEPTH_RANGE_NORMAL, qtrue);
 
 
 		i += count;
@@ -216,7 +216,7 @@ void RB_ShadowTessEnd( void ) {
 
 	// draw the silhouette edges
 
-	updateCurDescriptor( tr.whiteImage->descriptor_set, 0);
+	updateCurDescriptor( tr.whiteImage->tex, 0);
 
 	R_ExtrudeShadowEdges();
 
@@ -245,7 +245,7 @@ void RB_ShadowFinish( void )
 		return;
 	}
 
-	updateCurDescriptor( tr.whiteImage->descriptor_set, 0);
+	updateCurDescriptor( tr.whiteImage->tex, 0);
 
 	// VULKAN
 

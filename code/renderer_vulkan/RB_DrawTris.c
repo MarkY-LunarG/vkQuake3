@@ -20,11 +20,11 @@ void RB_DrawTris (shaderCommands_t * pInput)
 	}
 
 
-	updateCurDescriptor( tr.whiteImage->descriptor_set, 0);
+	updateCurDescriptor( tr.whiteImage->tex, 0);
 
 	// VULKAN
 
     memset(pInput->svars.colors, 255, pInput->numVertexes * 4 );
-    VkPipeline pipeline = backEnd.viewParms.isMirror ? g_stdPipelines.tris_mirror_debug_pipeline : g_stdPipelines.tris_debug_pipeline;
+    const gapi_pipeline_t* pipeline = backEnd.viewParms.isMirror ? g_stdPipelines.tris_mirror_debug_pipeline : g_stdPipelines.tris_debug_pipeline;
     vk_shade_geometry(pipeline, qfalse, DEPTH_RANGE_ZERO, qtrue);
 }

@@ -1,6 +1,8 @@
 #ifndef VK_SHADERS_H_
 #define VK_SHADERS_H_
 
+#include "VKimpl.h"
+
 
 
 #include "tr_state_bits.h"
