@@ -214,36 +214,32 @@ static void vk_createInstance(void)
     // Pointers.
     // Extensions may be provided by layers as well as by a Vulkan implementation.
     //
-    // check extensions availability
-	uint32_t nInsExt = 0;
-    // To retrieve a list of supported extensions before creating an instance
-	VK_CHECK( qvkEnumerateInstanceExtensionProperties( NULL, &nInsExt, NULL) );
+	// Each platform-specific extension is an instance extension.
+	// The application must enable instance extensions with vkCreateInstance
+	// before using them. Enable only the extensions that the renderer uses:
+	// the surface extensions that the window system needs, and the debug
+	// report extension in debug builds. Some other instance extensions need
+	// a Vulkan version that is higher than appInfo.apiVersion.
+	uint32_t nWindowExt = 0;
+	vk_getInstanceExtensionsImpl(&nWindowExt, NULL);
 
-    assert(nInsExt > 0);
+	const char** ppInstanceExt = malloc( sizeof(char *) * (nWindowExt + 1) );
+	vk_getInstanceExtensionsImpl(&nWindowExt, ppInstanceExt);
 
-    ri.Printf(PRINT_ALL, "--- Total %d instance extensions. --- \n", nInsExt);
+	uint32_t nInsExt = nWindowExt;
+#ifndef NDEBUG
+	// The Vulkan loader always has this extension.
+	ppInstanceExt[nInsExt++] = VK_EXT_DEBUG_REPORT_EXTENSION_NAME;
+#endif
 
-    VkExtensionProperties *pInsExt = (VkExtensionProperties *) malloc(sizeof(VkExtensionProperties) * nInsExt);
-    
-    const char** ppInstanceExt = malloc( sizeof(char *) * (nInsExt) );
+	uint32_t i = 0;
+	ri.Printf(PRINT_ALL, "--- Enable %d instance extensions: ---\n", nInsExt);
+	for (i = 0; i < nInsExt; i++)
+	{
+		ri.Printf(PRINT_ALL, " %s\n", ppInstanceExt[i]);
+	}
 
-    VK_CHECK(qvkEnumerateInstanceExtensionProperties( NULL, &nInsExt, pInsExt));
-
-    uint32_t i = 0;
-
-    // Each platform-specific extension is an instance extension.
-    // The application must enable instance extensions with vkCreateInstance
-    // before using them.
-
-    // TODO: CHECK OUT
-    // All of the instance wxtention enabled, Does this reasonable ?
-
-    for (i = 0; i < nInsExt; i++)
-    {    
-        ppInstanceExt[i] = pInsExt[i].extensionName;
-    }
-    
-    instanceCreateInfo.enabledExtensionCount = nInsExt;
+	instanceCreateInfo.enabledExtensionCount = nInsExt;
 	instanceCreateInfo.ppEnabledExtensionNames = ppInstanceExt;
 
 #ifndef NDEBUG
@@ -280,8 +276,6 @@ static void vk_createInstance(void)
     }
    
     free(ppInstanceExt);
-
-    free(pInsExt);
 }
 
 

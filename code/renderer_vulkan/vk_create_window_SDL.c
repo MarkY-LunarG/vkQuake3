@@ -354,6 +354,19 @@ void vk_destroyWindow( void )
 }
 
 
+void vk_getInstanceExtensionsImpl(uint32_t* pCount, const char** ppNames)
+{
+    unsigned int count = *pCount;
+
+    if (!SDL_Vulkan_GetInstanceExtensions(window_sdl, &count, ppNames))
+    {
+        ri.Error(ERR_FATAL, "SDL_Vulkan_GetInstanceExtensions(): %s\n", SDL_GetError());
+    }
+
+    *pCount = count;
+}
+
+
 void vk_createSurfaceImpl(void)
 {
     ri.Printf(PRINT_ALL, " Create Surface: vk.surface.\n");
