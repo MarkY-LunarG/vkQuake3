@@ -7,8 +7,11 @@
 #   WebGPU: GLSL with GAPI_WEBGPU to SPIR-V, split the combined image samplers
 #           with spirv-opt, then SPIR-V to WGSL with tint. The tint executable
 #           comes from scripts/build_dawn.sh. Set TINT to use a different one.
-OUT=../../Vulkan/shaders
-WGSL_OUT=../../WebGPU/shaders
+#
+# Set OUT and WGSL_OUT to write the Vulkan and the WebGPU files to other
+# directories. scripts/check_shaders.sh uses this.
+OUT=${OUT:-../../Vulkan/shaders}
+WGSL_OUT=${WGSL_OUT:-../../WebGPU/shaders}
 TINT=${TINT:-../../../../../build/dawn-install/bin/tint}
 
 if [[ ! -x "./bintoc" ]]
