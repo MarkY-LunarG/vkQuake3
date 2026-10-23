@@ -1089,7 +1089,9 @@ void RB_CalcSpecularAlpha( unsigned char *alphas ) {
 		reflected[2] = normal[2]*2*d - lightDir[2];
 
 		VectorSubtract (backEnd.or.viewOrigin, v, viewer);
-		ilength = sqrtf( DotProduct( viewer, viewer ) );
+		// The inverse length: l is the cosine of the angle between the
+		// reflected light and the viewer.
+		ilength = Q_rsqrt( DotProduct( viewer, viewer ) );
 		l = DotProduct (reflected, viewer);
 		l *= ilength;
 
