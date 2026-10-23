@@ -3,18 +3,17 @@
 #include "vk_frame.h"
 #include "vk_cmd.h"
 #include "vk_depth_attachment.h"
-#include "tr_pipelines.h"
 #include "vk_pipeline.h"
 #include "vk_geometry.h"
 #include "vk_shaders.h"
+#include "graphics_api/gapi.h"
 #include "glConfig.h"
-#include "tr_backend.h"
 
 // vk_init have nothing to do with tr_init
 // vk_instance should be small
 // 
 // After calling this function we get fully functional vulkan subsystem.
-void vk_initialize(struct SDL_Window* window)
+qboolean gapi_init(struct SDL_Window* window)
 {
     // This function is responsible for initializing a valid Vulkan subsystem.
     vk_setWindowImpl(window);
@@ -42,8 +41,6 @@ void vk_initialize(struct SDL_Window* window)
 
     R_GetWinResolution(&width, &height);
 
-    backEnd.viewParms.viewportWidth = width;
-    backEnd.viewParms.viewportHeight = height;
 
     // Depth attachment image.
     vk_createDepthAttachment(width, height);
@@ -71,15 +68,16 @@ void vk_initialize(struct SDL_Window* window)
 	//
 	// Standard pipelines.
 	//
-    create_standard_pipelines();
 
     vk.isInitialized = VK_TRUE;
+
+    return qtrue;
 }
 
 
-VkBool32 isVKinitialied(void)
+qboolean gapi_isInitialized(void)
 {
-    return vk.isInitialized;
+    return vk.isInitialized ? qtrue : qfalse;
 }
 
 
@@ -89,9 +87,9 @@ void gapi_waitIdle(void)
 }
 
 // Shutdown vulkan subsystem by releasing resources acquired by Vk_Instance.
-void vk_shutdown(void)
+void gapi_shutdown(void)
 {
-    ri.Printf( PRINT_ALL, "vk_shutdown()\n" );
+    ri.Printf( PRINT_ALL, "gapi_shutdown()\n" );
 
     vk_destroyDepthAttachment();
 
@@ -104,7 +102,6 @@ void vk_shutdown(void)
     vk_destroyShaderModules();
 
 //
-    R_DestroyStandardPipelines();
     vk_destroyPipelineLayout();
 //
     vk_destroy_commands();

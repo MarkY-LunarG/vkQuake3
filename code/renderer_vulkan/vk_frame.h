@@ -3,8 +3,6 @@
 
 #include "VKimpl.h"
 
-void vk_begin_frame(void);
-void vk_end_frame(void);
 
 
 void vk_createFrameBuffers(uint32_t w, uint32_t h);

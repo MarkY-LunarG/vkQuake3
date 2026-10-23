@@ -104,6 +104,16 @@ typedef struct {
 // The SDL window flags that the graphics API needs, for example SDL_WINDOW_VULKAN.
 uint32_t gapi_sdlWindowFlags(void);
 
+// Start the graphics API for a window that R_CreateWindow made with
+// gapi_sdlWindowFlags. Return qfalse if it cannot start on this window.
+qboolean gapi_init(struct SDL_Window* window);
+void gapi_shutdown(void);
+qboolean gapi_isInitialized(void);
+
+// Start and end a frame. gapi_endFrame submits the frame and presents it.
+void gapi_beginFrame(void);
+void gapi_endFrame(void);
+
 // The console command that prints information about the graphics API and the device.
 void gapi_printInfo(void);
 

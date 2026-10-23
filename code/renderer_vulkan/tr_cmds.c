@@ -25,11 +25,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "tr_cvar.h"
 #include "ref_import.h"
 
-#include "vk_instance.h"
-#include "vk_frame.h"
 #include "tr_screenshot.h"
 #include "tr_shade_geometry.h"
-#include "vk_geometry.h"
 #include "RB_ShowImages.h"
 #include "R_PrintMat.h"
 #include "tr_light.h"
@@ -540,11 +537,8 @@ void R_IssueRenderCommands( qboolean runPerformanceCounters )
             {
                 // data = RB_DrawBuffer( data ); 
                 // const drawBufferCommand_t * const cmd = (const drawBufferCommand_t *)data;
-                vk_resetGeometryBuffer();
                 reset_modelview_matrix();
-                
-                // VULKAN
-                vk_begin_frame();
+                gapi_beginFrame();
 
                 data += sizeof(drawBufferCommand_t);
 
@@ -562,8 +556,7 @@ void R_IssueRenderCommands( qboolean runPerformanceCounters )
                     RB_ShowImages(tr.images, tr.numImages);
                 }
 
-                // VULKAN
-                vk_end_frame();
+                gapi_endFrame();
 
                 data += sizeof(swapBuffersCommand_t);
             } break;

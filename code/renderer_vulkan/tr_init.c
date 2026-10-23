@@ -26,11 +26,9 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "tr_model.h"
 #include "tr_cvar.h"
 
-#include "vk_init.h"
 
 #include "tr_screenshot.h"
 #include "tr_shade_geometry.h"
-#include "vk_geometry.h"
 #include "tr_pipelines.h"
 #include "tr_images.h"
 
@@ -121,10 +119,20 @@ void R_Init( void )
 
     R_glConfigInit();
 
-    // VULKAN
-	if ( !isVKinitialied() )
+	if ( !gapi_isInitialized() )
 	{
-		vk_initialize(R_CreateWindow(gapi_sdlWindowFlags()));
+		if ( !gapi_init(R_CreateWindow(gapi_sdlWindowFlags())) )
+		{
+			ri.Error(ERR_FATAL, "R_Init: the graphics API cannot start\n");
+		}
+
+		int width;
+		int height;
+		R_GetWinResolution(&width, &height);
+		backEnd.viewParms.viewportWidth = width;
+		backEnd.viewParms.viewportHeight = height;
+
+		create_standard_pipelines();
 
         R_glConfigSetAPIInfo();
 
@@ -182,7 +190,6 @@ void RE_Shutdown( qboolean destroyWindow )
     R_DestroyShaderStagePipelines();
  
 
-    vk_resetGeometryBuffer();
     reset_modelview_matrix();
 
 	if ( tr.registered )
@@ -193,7 +200,8 @@ void RE_Shutdown( qboolean destroyWindow )
 
     if (destroyWindow)
     {
-        vk_shutdown();
+        R_DestroyStandardPipelines();
+        gapi_shutdown();
         R_DestroyWindow();
         
         // It is cleared not for renderer_vulkan,

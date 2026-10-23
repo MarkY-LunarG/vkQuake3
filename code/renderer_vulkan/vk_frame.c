@@ -423,8 +423,10 @@ void vk_destroyFrameBuffers(void)
 }
 
 
-void vk_begin_frame(void)
+void gapi_beginFrame(void)
 {
+    vk_resetGeometryBuffer();
+
   
     // An application can acquire use of a presentable image with vkAcquireNextImageKHR. 
     // After acquiring a presentable image and before modifying it, the application must
@@ -576,7 +578,7 @@ void vk_begin_frame(void)
 }
 
 
-void vk_end_frame(void)
+void gapi_endFrame(void)
 {
 	qvkCmdEndRenderPass(vk.command_buffer);
 	
