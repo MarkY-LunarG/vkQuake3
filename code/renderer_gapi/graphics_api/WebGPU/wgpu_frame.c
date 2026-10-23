@@ -291,6 +291,7 @@ void gapi_beginFrame(void)
     passDesc.depthStencilAttachment = &depth;
     wg.pass = wgpuCommandEncoderBeginRenderPass(wg.encoder, &passDesc);
 
+    wgpu_beginGeometryFrame();
     wg.frameActive = qtrue;
 }
 
@@ -302,6 +303,13 @@ void gapi_endFrame(void)
         return;
 
     wgpuRenderPassEncoderEnd(wg.pass);
+
+    // Write the vertex data and the vertex shader constants of the frame.
+    // The queue does the writes before the commands of the frame.
+    wgpu_writeGeometryFrame();
+
+    // Keep a copy for screenshots and video capture.
+    wgpu_keepLastFrame();
 
     WGPUCommandBuffer commands = wgpuCommandEncoderFinish(wg.encoder, NULL);
     wgpuQueueSubmit(wg.queue, 1, &commands);

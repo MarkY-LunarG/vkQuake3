@@ -116,7 +116,10 @@ static qboolean wgpu_requestAdapterAndDevice(void)
     WGPUFeatureName features[1];
     size_t featureCount = 0;
     if (wgpuAdapterHasFeature(wg.adapter, WGPUFeatureName_ClipDistances))
+    {
         features[featureCount++] = WGPUFeatureName_ClipDistances;
+        wg.clipDistances = qtrue;
+    }
 
     WGPUDeviceDescriptor deviceDesc = WGPU_DEVICE_DESCRIPTOR_INIT;
     deviceDesc.label = wgpu_stringView("Quake 3");
@@ -143,6 +146,13 @@ static qboolean wgpu_requestAdapterAndDevice(void)
 static void wgpu_releaseAll(void)
 {
     wgpu_releaseFrameResources();
+    if (wg.device)
+    {
+        wgpu_releaseDrawResources();
+        wgpu_releasePipelineResources();
+        wgpu_releaseGeometryResources();
+        wgpu_releaseTextureResources();
+    }
 
     // Release the surface before the device. Dawn crashes in its Vulkan
     // deleter if the surface is released after the device.
@@ -220,6 +230,13 @@ qboolean gapi_init(struct SDL_Window* window)
         wgpu_releaseAll();
         return qfalse;
     }
+
+    // The pipelines need the surface format, so they come after the
+    // surface configuration.
+    wgpu_createTextureResources();
+    wgpu_createGeometryResources();
+    wgpu_createPipelineResources();
+    wgpu_createDrawResources();
 
     wg.initialized = qtrue;
     return qtrue;

@@ -1914,8 +1914,17 @@ Q3VKOBJ = $(Q3GAPIOBJ) \
 Q3WGPUOBJ = $(Q3GAPIOBJ) \
   $(B)/renderer_gapi/WebGPU/wgpu_init.o \
   $(B)/renderer_gapi/WebGPU/wgpu_frame.o \
+  $(B)/renderer_gapi/WebGPU/wgpu_texture.o \
+  $(B)/renderer_gapi/WebGPU/wgpu_pipeline.o \
+  $(B)/renderer_gapi/WebGPU/wgpu_geometry.o \
   $(B)/renderer_gapi/WebGPU/wgpu_draw.o \
-  $(B)/renderer_gapi/WebGPU/wgpu_surface_sdl.o
+  $(B)/renderer_gapi/WebGPU/wgpu_surface_sdl.o \
+  $(B)/renderer_gapi/WebGPU/single_texture_vert_wgsl.o \
+  $(B)/renderer_gapi/WebGPU/single_texture_clipping_plane_vert_wgsl.o \
+  $(B)/renderer_gapi/WebGPU/single_texture_frag_wgsl.o \
+  $(B)/renderer_gapi/WebGPU/multi_texture_vert_wgsl.o \
+  $(B)/renderer_gapi/WebGPU/multi_texture_clipping_plane_vert_wgsl.o \
+  $(B)/renderer_gapi/WebGPU/multi_texture_frag_wgsl.o
 
 ######################################################
 
@@ -2956,6 +2965,9 @@ $(B)/renderer_gapi/Vulkan/%.o: $(RVULKANDIR)/shaders/%.c
 	$(DO_VULKAN_CC)
 
 $(B)/renderer_gapi/WebGPU/%.o: $(RWEBGPUDIR)/%.c
+	$(DO_WEBGPU_CC)
+
+$(B)/renderer_gapi/WebGPU/%.o: $(RWEBGPUDIR)/shaders/%.c
 	$(DO_WEBGPU_CC)
 
 ##############################################
