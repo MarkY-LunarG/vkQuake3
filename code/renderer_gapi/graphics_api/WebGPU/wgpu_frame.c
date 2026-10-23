@@ -128,6 +128,12 @@ qboolean wgpu_configureSurface(void)
     // Dawn can report an sRGB format first.
     wg.surfaceFormat = WGPUTextureFormat_Undefined;
     size_t i;
+#ifdef __EMSCRIPTEN__
+    // The first format is the preferred canvas format of the browser. Another
+    // format needs an extra copy for each frame.
+    if (caps.formats[0] == WGPUTextureFormat_BGRA8Unorm || caps.formats[0] == WGPUTextureFormat_RGBA8Unorm)
+        wg.surfaceFormat = caps.formats[0];
+#endif
     for (i = 0; i < caps.formatCount && wg.surfaceFormat == WGPUTextureFormat_Undefined; i++)
         if (caps.formats[i] == WGPUTextureFormat_BGRA8Unorm)
             wg.surfaceFormat = WGPUTextureFormat_BGRA8Unorm;
