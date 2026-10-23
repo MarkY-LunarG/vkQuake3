@@ -141,7 +141,7 @@ static void vk_renderShadowEdges(VkPipeline vk_pipeline)
         vk_UploadXYZI(tess.xyz, tess.numVertexes, tess.indexes, tess.numIndexes);
         updateMVP(backEnd.viewParms.isPortal, backEnd.projection2D, getptr_modelview_matrix());
 
-        vk_shade_geometry(vk_pipeline, VK_FALSE, DEPTH_RANGE_NORMAL, VK_TRUE);
+        vk_shade_geometry(vk_pipeline, qfalse, DEPTH_RANGE_NORMAL, qtrue);
 
 
 		i += count;
@@ -281,7 +281,7 @@ void RB_ShadowFinish( void )
      
     vk_UploadXYZI(tess.xyz, tess.numVertexes, tess.indexes, tess.numIndexes);
     updateMVP(backEnd.viewParms.isPortal, backEnd.projection2D, tmp);
-    vk_shade_geometry(g_stdPipelines.shadow_finish_pipeline, VK_FALSE, DEPTH_RANGE_NORMAL, VK_TRUE);
+    vk_shade_geometry(g_stdPipelines.shadow_finish_pipeline, qfalse, DEPTH_RANGE_NORMAL, qtrue);
 
     tess.numIndexes = 0;
     tess.numVertexes = 0;

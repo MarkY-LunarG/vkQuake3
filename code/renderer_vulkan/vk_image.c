@@ -449,7 +449,7 @@ static void vk_createImageViewAndDescriptorSet(image_t* pImage)
 
 
 image_t* R_CreateImage( const char *name, unsigned char* pic, const uint32_t width, const uint32_t height,
-						VkBool32 isMipMap, VkBool32 allowPicmip, int glWrapClampMode)
+						qboolean isMipMap, qboolean allowPicmip, int glWrapClampMode)
 {
     if (strlen(name) >= MAX_QPATH ) {
         ri.Error (ERR_DROP, "CreateImage: \"%s\" is too long\n", name);
@@ -676,7 +676,7 @@ image_t* R_CreateImage( const char *name, unsigned char* pic, const uint32_t wid
 
 
 
-image_t* R_FindImageFile(const char *name, VkBool32 mipmap, VkBool32 allowPicmip, int glWrapClampMode)
+image_t* R_FindImageFile(const char *name, qboolean mipmap, qboolean allowPicmip, int glWrapClampMode)
 {
    	image_t* image;
 
@@ -740,7 +740,7 @@ image_t* R_FindImageFile(const char *name, VkBool32 mipmap, VkBool32 allowPicmip
 
 
 
-void RE_UploadCinematic (int w, int h, int cols, int rows, const unsigned char *data, int client, VkBool32 dirty)
+void RE_UploadCinematic (int w, int h, int cols, int rows, const unsigned char *data, int client, qboolean dirty)
 {
 
     image_t* prtImage = tr.scratchImage[client];

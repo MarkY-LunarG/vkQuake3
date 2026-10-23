@@ -21,10 +21,10 @@ typedef struct {
 	int				height;
 	unsigned char*  captureBuffer;
 	unsigned char*  encodeBuffer;
-	VkBool32        motionJpeg;
+	qboolean        motionJpeg;
 } videoFrameCommand_t;
 
 void RB_TakeVideoFrameCmd( const videoFrameCommand_t * const cmd );
-void RB_TakeScreenshot( int width, int height, char *fileName, VkBool32 isJpeg);
+void RB_TakeScreenshot( int width, int height, char *fileName, qboolean isJpeg);
 
 #endif

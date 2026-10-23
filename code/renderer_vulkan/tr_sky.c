@@ -707,7 +707,7 @@ void RB_StageIteratorSky( void )
         }
             vk_UploadXYZI(tess.xyz, tess.numVertexes, tess.indexes, tess.numIndexes);
 
-            vk_shade_geometry(g_stdPipelines.skybox_pipeline, VK_FALSE, r_showsky->integer ? DEPTH_RANGE_ZERO : DEPTH_RANGE_ONE, VK_TRUE);
+            vk_shade_geometry(g_stdPipelines.skybox_pipeline, qfalse, r_showsky->integer ? DEPTH_RANGE_ZERO : DEPTH_RANGE_ONE, qtrue);
 
         }
         

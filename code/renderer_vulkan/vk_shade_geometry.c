@@ -77,7 +77,7 @@ const float * getptr_modelview_matrix()
 
 
 // TODO   : figure out the principle
-static void vk_setViewportScissor(VkBool32 is2D, enum Vk_Depth_Range dR,
+static void vk_setViewportScissor(qboolean is2D, enum Vk_Depth_Range dR,
         VkViewport* const vp, VkRect2D* const pRect)
 {
     int width, height;
@@ -327,7 +327,7 @@ void updateCurDescriptor( VkDescriptorSet curDesSet, uint32_t tmu)
 
 
 
-void vk_shade_geometry(VkPipeline pipeline, VkBool32 multitexture, enum Vk_Depth_Range depRg, VkBool32 indexed)
+void vk_shade_geometry(VkPipeline pipeline, qboolean multitexture, enum Vk_Depth_Range depRg, qboolean indexed)
 {
 	// configure vertex data stream
 	VkBuffer bufs[3] = { shadingDat.vertex_buffer, shadingDat.vertex_buffer, shadingDat.vertex_buffer };
@@ -398,7 +398,7 @@ void vk_shade_geometry(VkPipeline pipeline, VkBool32 multitexture, enum Vk_Depth
 
 
 
-void updateMVP(VkBool32 isPortal, VkBool32 is2D, const float mvMat4x4[16])
+void updateMVP(qboolean isPortal, qboolean is2D, const float mvMat4x4[16])
 {
 	if (isPortal)
     {
@@ -1095,7 +1095,7 @@ static void ProjectDlightTexture( void )
 		// VULKAN
 
 		vk_shade_geometry(g_stdPipelines.dlight_pipelines[backEnd.refdef.dlights[l].additive > 0 ? 1 : 0][tess.shader->cullType][tess.shader->polygonOffset],
-                VK_FALSE, DEPTH_RANGE_NORMAL, VK_TRUE);
+                qfalse, DEPTH_RANGE_NORMAL, qtrue);
 
 	}
 }
@@ -1131,7 +1131,7 @@ static void RB_FogPass( void ) {
 
     assert(tess.shader->fogPass > 0);
     VkPipeline pipeline = g_stdPipelines.fog_pipelines[tess.shader->fogPass - 1][tess.shader->cullType][tess.shader->polygonOffset];
-    vk_shade_geometry(pipeline, VK_FALSE, DEPTH_RANGE_NORMAL, VK_TRUE);
+    vk_shade_geometry(pipeline, qfalse, DEPTH_RANGE_NORMAL, qtrue);
 }
 
 
@@ -1166,7 +1166,7 @@ void RB_StageIteratorGeneric( void )
         // base
         // set state
 		//R_BindAnimatedImage( &tess.xstages[stage]->bundle[0] );
-        VkBool32 multitexture = (tess.xstages[stage]->bundle[1].image[0] != NULL);
+        qboolean multitexture = (tess.xstages[stage]->bundle[1].image[0] != NULL);
 
     {        
 	    if ( tess.xstages[stage]->bundle[0].isVideoMap )
@@ -1263,15 +1263,15 @@ END_ANIMA2:
         
         if (backEnd.viewParms.isMirror)
         {
-            vk_shade_geometry(tess.xstages[stage]->vk_mirror_pipeline, multitexture, depth_range, VK_TRUE);
+            vk_shade_geometry(tess.xstages[stage]->vk_mirror_pipeline, multitexture, depth_range, qtrue);
         }
         else if (backEnd.viewParms.isPortal)
         {
-            vk_shade_geometry(tess.xstages[stage]->vk_portal_pipeline, multitexture, depth_range, VK_TRUE);
+            vk_shade_geometry(tess.xstages[stage]->vk_portal_pipeline, multitexture, depth_range, qtrue);
         }
         else
         {
-            vk_shade_geometry(tess.xstages[stage]->vk_pipeline, multitexture, depth_range, VK_TRUE);
+            vk_shade_geometry(tess.xstages[stage]->vk_pipeline, multitexture, depth_range, qtrue);
         }
 
                 

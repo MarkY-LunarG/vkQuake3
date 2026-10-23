@@ -15,10 +15,10 @@ const float * getptr_modelview_matrix(void);
 
 void set_modelview_matrix(const float mv[16]);
 
-void vk_shade_geometry(VkPipeline pipeline, VkBool32 multitexture, enum Vk_Depth_Range depth_range, VkBool32 indexed);
+void vk_shade_geometry(VkPipeline pipeline, qboolean multitexture, enum Vk_Depth_Range depth_range, qboolean indexed);
 void vk_UploadXYZI(float (*pXYZ)[4], uint32_t nVertex, uint32_t* pIdx, uint32_t nIndex);
 
-void updateMVP(VkBool32 isPortal, VkBool32 is2D, const float mvMat4x4[16]);
+void updateMVP(qboolean isPortal, qboolean is2D, const float mvMat4x4[16]);
 void vk_resetGeometryBuffer(void);
 
 void vk_createVertexBuffer(void);

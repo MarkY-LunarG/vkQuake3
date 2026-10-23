@@ -25,10 +25,10 @@ typedef struct image_s {
 	VkDescriptorSet descriptor_set;
 
     int			wrapClampMode;		// GL_CLAMP or GL_REPEAT, for vulkan
-    VkBool32    mipmap;             // for vulkan
+    qboolean    mipmap;
     uint32_t    mipLevels;			// gl texture binding
-    VkBool32    allowPicmip;        // for vulkan
-    VkBool32    isLightmap;
+    qboolean    allowPicmip;
+    qboolean    isLightmap;
 
 	struct image_s*	next;
 } image_t;
