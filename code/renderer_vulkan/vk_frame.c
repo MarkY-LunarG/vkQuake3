@@ -442,6 +442,12 @@ void vk_begin_frame(void)
     // VK_SUBOPTIMAL_KHR is a success code, meaning the swapchain can still be
     // used to present but the surface properties no longer match exactly.
     // This commonly happens on Wayland when the window is resized.
+
+    // Wait for the previous frame first. Its submit waits on
+    // sema_imageAvailable, and vkAcquireNextImageKHR must not get a
+    // semaphore that has a pending wait.
+	VK_CHECK(qvkWaitForFences(vk.device, 1, &fence_renderFinished, VK_FALSE, 1e9));
+
     {
         VkResult result = qvkAcquireNextImageKHR(vk.device, vk.swapchain, UINT64_MAX,
             sema_imageAvailable, VK_NULL_HANDLE, &vk.idx_swapchain_image);
@@ -473,7 +479,6 @@ void vk_begin_frame(void)
     //  the time vkWaitForFences is called, then vkWaitForFences will block and 
     //  wait up to timeout nanoseconds for the condition to become satisfied.
 
-	VK_CHECK(qvkWaitForFences(vk.device, 1, &fence_renderFinished, VK_FALSE, 1e9));
  
     //  To set the state of fences to unsignaled from the host
     //  "1" is the number of fences to reset. 
