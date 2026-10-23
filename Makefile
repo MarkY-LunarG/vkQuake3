@@ -57,6 +57,12 @@ ifeq ($(COMPILE_PLATFORM),cygwin)
   PLATFORM=mingw32
 endif
 
+# MSYS2: uname gives MINGW64_NT-<version> or MSYS_NT-<version>. This is a
+# native MinGW build, not a cross build.
+ifneq ($(filter mingw64 msys,$(COMPILE_PLATFORM)),)
+  COMPILE_PLATFORM=mingw32
+endif
+
 ifndef PLATFORM
 PLATFORM=$(COMPILE_PLATFORM)
 endif
@@ -256,9 +262,25 @@ RGAPIDIR=$(MOUNT_DIR)/renderer_gapi
 RVULKANDIR=$(RGAPIDIR)/graphics_api/Vulkan
 RWEBGPUDIR=$(RGAPIDIR)/graphics_api/WebGPU
 
-# The Dawn install that scripts/build_dawn.sh makes.
+# The Dawn install that scripts/build_dawn.sh makes. DAWN_LIB is the shared
+# library that the game loads, and DAWN_RUNTIME has the files that the build
+# copies next to the renderer.
 DAWN_DIR ?= $(CURDIR)/build/dawn-install
-DAWN_LIB = $(firstword $(wildcard $(DAWN_DIR)/lib64/libwebgpu_dawn.so $(DAWN_DIR)/lib/libwebgpu_dawn.so))
+ifeq ($(PLATFORM),mingw32)
+  # Dawn is built with MSVC: webgpu_dawn.dll is in bin, and the import
+  # library is in lib. The MinGW linker can use the import library or the DLL.
+  DAWN_LIB = $(firstword $(wildcard $(DAWN_DIR)/bin/webgpu_dawn.dll $(DAWN_DIR)/lib/webgpu_dawn.dll))
+  DAWN_LINK = $(firstword $(wildcard $(DAWN_DIR)/lib/libwebgpu_dawn.dll.a $(DAWN_DIR)/lib/webgpu_dawn.lib) $(DAWN_LIB))
+  DAWN_RUNTIME = $(DAWN_LIB) $(wildcard $(DAWN_DIR)/bin/dxcompiler.dll $(DAWN_DIR)/bin/dxil.dll)
+else
+ifeq ($(PLATFORM),darwin)
+  DAWN_LIB = $(wildcard $(DAWN_DIR)/lib/libwebgpu_dawn.dylib)
+  DAWN_RUNTIME = $(DAWN_LIB)
+else
+  DAWN_LIB = $(firstword $(wildcard $(DAWN_DIR)/lib64/libwebgpu_dawn.so $(DAWN_DIR)/lib/libwebgpu_dawn.so))
+  DAWN_RUNTIME = $(DAWN_LIB)
+endif
+endif
 CMDIR=$(MOUNT_DIR)/qcommon
 SDLDIR=$(MOUNT_DIR)/sdl
 ASMDIR=$(MOUNT_DIR)/asm
@@ -1247,7 +1269,18 @@ $(Q)$(CC) $(SHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(GAPI_CFLAGS) $(OPTIMIZE) -
 endef
 
 WEBGPU_CFLAGS = $(GAPI_CFLAGS) -I$(RWEBGPUDIR) -I$(DAWN_DIR)/include
-WEBGPU_LIBS = -L$(dir $(DAWN_LIB)) -lwebgpu_dawn -Wl,-rpath,'$$ORIGIN'
+# The renderer finds the Dawn library in its own directory.
+ifeq ($(PLATFORM),mingw32)
+  # Windows searches the directory of the executable.
+  WEBGPU_LIBS = $(DAWN_LINK)
+else
+ifeq ($(PLATFORM),darwin)
+  # -lobjc: wgpu_surface_sdl.c gets the CAMetalLayer with objc_msgSend.
+  WEBGPU_LIBS = -L$(dir $(DAWN_LIB)) -lwebgpu_dawn -lobjc -Wl,-rpath,@loader_path
+else
+  WEBGPU_LIBS = -L$(dir $(DAWN_LIB)) -lwebgpu_dawn -Wl,-rpath,'$$ORIGIN'
+endif
+endif
 
 define DO_WEBGPU_CC
 $(echo_cmd) "REF_CC $<"
@@ -2392,7 +2425,7 @@ $(B)/renderer_webgpu_$(SHLIBNAME): $(Q3WGPUOBJ) $(JPGOBJ)
 	$(echo_cmd) "LD $@"
 	$(Q)$(CC) $(CFLAGS) $(SHLIBLDFLAGS) -o $@ $(Q3WGPUOBJ) $(JPGOBJ) \
 		$(THREAD_LIBS) $(RENDERER_LIBS) $(LIBSDLMAIN) $(LIBS) $(WEBGPU_LIBS)
-	$(Q)cp $(DAWN_LIB) $(B)/
+	$(Q)cp $(DAWN_RUNTIME) $(B)/
 
 ##############################################################
 
@@ -2417,7 +2450,7 @@ $(B)/$(CLIENTBIN)_webgpu$(FULLBINEXT): $(Q3OBJ) $(Q3WGPUOBJ) $(JPGOBJ)
 	$(Q)$(CC) $(CLIENT_CFLAGS) $(CFLAGS) $(CLIENT_LDFLAGS) $(LDFLAGS) $(NOTSHLIBLDFLAGS) \
 		-o $@ $(Q3OBJ) $(Q3WGPUOBJ) $(JPGOBJ) \
 		$(LIBSDLMAIN) $(CLIENT_LIBS) $(RENDERER_LIBS) $(LIBS) $(WEBGPU_LIBS)
-	$(Q)cp $(DAWN_LIB) $(B)/
+	$(Q)cp $(DAWN_RUNTIME) $(B)/
 
 $(B)/$(CLIENTBIN)_vulkan$(FULLBINEXT): $(Q3OBJ) $(Q3VKOBJ) $(JPGOBJ)
 	$(echo_cmd) "LD $@"
