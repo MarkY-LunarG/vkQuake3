@@ -1,0 +1,17 @@
+{
+    "_comment": "The game files that the page loads for each game directory. The paths are relative to the data URL of the page (the 'data' URL parameter, or the directory of the page). The QVMs are in pak8.pk3. The page skips a file that it cannot load, for example a missing q3key.",
+    "baseq3": {
+        "files": [
+            {"src": "baseq3/pak0.pk3", "dst": "/baseq3"},
+            {"src": "baseq3/pak1.pk3", "dst": "/baseq3"},
+            {"src": "baseq3/pak2.pk3", "dst": "/baseq3"},
+            {"src": "baseq3/pak3.pk3", "dst": "/baseq3"},
+            {"src": "baseq3/pak4.pk3", "dst": "/baseq3"},
+            {"src": "baseq3/pak5.pk3", "dst": "/baseq3"},
+            {"src": "baseq3/pak6.pk3", "dst": "/baseq3"},
+            {"src": "baseq3/pak7.pk3", "dst": "/baseq3"},
+            {"src": "baseq3/pak8.pk3", "dst": "/baseq3"},
+            {"src": "baseq3/q3key", "dst": "/baseq3"}
+        ]
+    }
+}

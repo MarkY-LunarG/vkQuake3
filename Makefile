@@ -2532,6 +2532,7 @@ $(B)/$(CLIENTBIN)_webgpu$(FULLBINEXT): $(Q3OBJ) $(Q3WGPUOBJ) $(JPGOBJ)
 		-o $@ $(Q3OBJ) $(Q3WGPUOBJ) $(JPGOBJ) \
 		$(LIBSDLMAIN) $(CLIENT_LIBS) $(RENDERER_LIBS) $(LIBS) $(WEBGPU_LIBS)
 	$(if $(DAWN_RUNTIME),$(Q)cp $(DAWN_RUNTIME) $(B)/)
+	$(if $(filter emscripten,$(PLATFORM)),$(Q)cp $(MOUNT_DIR)/web/ioquake3_webgpu.html $(MOUNT_DIR)/web/ioquake3_webgpu-config.json $(B)/)
 
 $(B)/$(CLIENTBIN)_vulkan$(FULLBINEXT): $(Q3OBJ) $(Q3VKOBJ) $(JPGOBJ)
 	$(echo_cmd) "LD $@"

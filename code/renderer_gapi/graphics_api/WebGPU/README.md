@@ -70,6 +70,36 @@ The renderer finds `libwebgpu_dawn.dylib` in its own directory (`@loader_path`).
 `make-macosx-app.sh` does not put the Vulkan or the WebGPU renderer into the application bundle.
 Run the game from the build directory.
 
+### Browser
+
+The browser build has only the client with the WebGPU renderer.
+It uses the Emscripten SDK, and the `emdawnwebgpu` port of Emscripten gives `webgpu.h`.
+The game code runs as QVM from `pak8.pk3`.
+
+```sh
+source <emsdk>/emsdk_env.sh
+emmake make PLATFORM=emscripten
+```
+
+The output in `build/release-emscripten-wasm32` is `ioquake3_webgpu.wasm32.js`,
+`ioquake3_webgpu.wasm32.wasm`, `ioquake3_webgpu.html`, and `ioquake3_webgpu-config.json`.
+The game data is not part of the build.
+The page loads the files in `ioquake3_webgpu-config.json` from its data URL, which must have
+`baseq3/` with your `pak0.pk3` to `pak8.pk3`.
+
+1. Serve the build directory and the game data from a web server.
+   For example, make a link to the game directory and start a local server:
+
+   ```sh
+   cd build/release-emscripten-wasm32
+   ln -s "<Quake 3 directory>" gamedata
+   python3 -m http.server 8000 --bind 127.0.0.1
+   ```
+
+2. Open `http://127.0.0.1:8000/ioquake3_webgpu.html?data=gamedata/` in a browser with WebGPU.
+   Add game arguments with `args`, and write `+` as `%2b`, for example
+   `&args=%2bdevmap%20q3dm17`.
+
 ## Test cvars
 
 | Cvar | Effect |

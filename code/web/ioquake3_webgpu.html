@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>vkQuake3 WebGPU</title>
+<style>
+html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: #000; }
+body { display: flex; align-items: center; justify-content: center; }
+canvas { display: block; }
+#status { position: absolute; top: 8px; left: 8px; color: #ccc; font: 14px monospace; }
+</style>
+</head>
+<body>
+<!-- The WebGPU surface of the game uses the selector "#canvas". -->
+<canvas id="canvas" tabindex="-1"></canvas>
+<div id="status">Loading...</div>
+<script type="module">
+// The page loads the engine (ioquake3_webgpu.wasm32.js and .wasm) from its own
+// directory, and the game files from the data URL. The config file lists the
+// game files for each game directory.
+//
+// URL parameters:
+//   data=<url>   The URL of the directory that has baseq3/. The default is the
+//                directory of the page.
+//   args=<text>  More command line arguments, for example
+//                "%2bset r_mode 4 %2bdevmap q3dm17" ("+" must be "%2b").
+const status = document.getElementById('status');
+const canvas = document.getElementById('canvas');
+const params = new URLSearchParams(window.location.search);
+let dataURL = new URL(params.get('data') || './', window.location.href);
+if (!dataURL.pathname.endsWith('/')) dataURL = new URL(dataURL.href + '/');
+
+if (window.location.protocol === 'file:') {
+    status.textContent = 'Load this page from a web server, not from a file: URL.';
+    throw new Error(status.textContent);
+}
+if (!navigator.gpu) {
+    status.textContent = 'This browser has no WebGPU.';
+    throw new Error(status.textContent);
+}
+
+let args = ['+set', 'sv_pure', '0', '+set', 'net_enabled', '0', '+set', 'com_introplayed', '1'];
+const extra = params.get('args');
+if (extra) args = args.concat(extra.trim().split(/\s+/));
+
+const config = await fetch('./ioquake3_webgpu-config.json').then(r => r.json());
+const createModule = (await import('./ioquake3_webgpu.wasm32.js')).default;
+
+await createModule({
+    canvas: canvas,
+    arguments: args,
+    print: (text) => console.log(text),
+    printErr: (text) => console.warn(text),
+    preRun: [async (module) => {
+        module.addRunDependency('game-files');
+        try {
+            const files = config.baseq3.files;
+            for (let i = 0; i < files.length; i++) {
+                status.textContent = `Loading ${files[i].src} (${i + 1} of ${files.length})`;
+                const response = await fetch(new URL(files[i].src, dataURL));
+                if (!response.ok) {
+                    console.warn(`Cannot load ${files[i].src}: ${response.status}`);
+                    continue;
+                }
+                const data = new Uint8Array(await response.arrayBuffer());
+                const name = files[i].src.split('/').pop();
+                module.FS.mkdirTree(files[i].dst);
+                module.FS.writeFile(`${files[i].dst}/${name}`, data);
+            }
+            status.textContent = '';
+        } finally {
+            module.removeRunDependency('game-files');
+        }
+    }],
+});
+</script>
+</body>
+</html>
