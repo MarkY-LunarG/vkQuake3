@@ -259,6 +259,16 @@ void create_standard_pipelines(void)
         R_CreateStdPipeline(&def, &g_stdPipelines.tris_mirror_debug_pipeline);
     }
 
+    ri.Printf(PRINT_ALL, " Create tris lines debug pipeline \n");
+    {
+        gapi_pipelineDesc_t def;
+        memset(&def, 0, sizeof(def));
+
+        def.stateBits = GLS_DEPTHMASK_TRUE;
+        def.linePrimitives = qtrue;
+        R_CreateStdPipeline(&def, &g_stdPipelines.tris_lines_debug_pipeline);
+    }
+
     ri.Printf(PRINT_ALL, " Create normals debug pipeline \n");
     {
         gapi_pipelineDesc_t def;

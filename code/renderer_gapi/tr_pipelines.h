@@ -35,6 +35,7 @@ struct GlobalPipelineManager {
 	// debug visualization pipelines
 	gapi_pipeline_t* tris_debug_pipeline;
 	gapi_pipeline_t* tris_mirror_debug_pipeline;
+	gapi_pipeline_t* tris_lines_debug_pipeline;		// without fillModeLine: RB_DrawTris gives lines
 	gapi_pipeline_t* normals_debug_pipeline;
 	gapi_pipeline_t* surface_debug_pipeline_solid;
 	gapi_pipeline_t* surface_debug_pipeline_outline;
