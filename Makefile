@@ -35,6 +35,10 @@ endif
 ifndef BUILD_RENDERER_OPENGL2
   BUILD_RENDERER_OPENGL2=
 endif
+# The WebGPU renderer needs Dawn (scripts/build_dawn.sh).
+ifndef BUILD_RENDERER_WEBGPU
+  BUILD_RENDERER_WEBGPU=0
+endif
 ifndef BUILD_AUTOUPDATER  # DON'T build unless you mean to!
   BUILD_AUTOUPDATER=0
 endif
@@ -250,6 +254,11 @@ RGL1DIR=$(MOUNT_DIR)/renderergl1
 RGL2DIR=$(MOUNT_DIR)/renderergl2
 RGAPIDIR=$(MOUNT_DIR)/renderer_gapi
 RVULKANDIR=$(RGAPIDIR)/graphics_api/Vulkan
+RWEBGPUDIR=$(RGAPIDIR)/graphics_api/WebGPU
+
+# The Dawn install that scripts/build_dawn.sh makes.
+DAWN_DIR ?= $(CURDIR)/build/dawn-install
+DAWN_LIB = $(firstword $(wildcard $(DAWN_DIR)/lib64/libwebgpu_dawn.so $(DAWN_DIR)/lib/libwebgpu_dawn.so))
 CMDIR=$(MOUNT_DIR)/qcommon
 SDLDIR=$(MOUNT_DIR)/sdl
 ASMDIR=$(MOUNT_DIR)/asm
@@ -999,6 +1008,9 @@ ifneq ($(BUILD_CLIENT),0)
 ##################  VULKAN  ###################
     TARGETS += $(B)/renderer_vulkan_$(SHLIBNAME)
 ###############################################
+    ifneq ($(BUILD_RENDERER_WEBGPU),0)
+      TARGETS += $(B)/renderer_webgpu_$(SHLIBNAME)
+    endif
   else
     TARGETS += $(B)/$(CLIENTBIN)$(FULLBINEXT)
     ifneq ($(BUILD_RENDERER_OPENGL2),0)
@@ -1007,6 +1019,9 @@ ifneq ($(BUILD_CLIENT),0)
 ##################  VULKAN  ###################
     TARGETS += $(B)/$(CLIENTBIN)_vulkan$(FULLBINEXT)
 ###############################################
+    ifneq ($(BUILD_RENDERER_WEBGPU),0)
+      TARGETS += $(B)/$(CLIENTBIN)_webgpu$(FULLBINEXT)
+    endif
   endif
 endif
 
@@ -1231,6 +1246,14 @@ $(echo_cmd) "REF_CC $<"
 $(Q)$(CC) $(SHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(GAPI_CFLAGS) $(OPTIMIZE) -o $@ -c $<
 endef
 
+WEBGPU_CFLAGS = $(GAPI_CFLAGS) -I$(RWEBGPUDIR) -I$(DAWN_DIR)/include
+WEBGPU_LIBS = -L$(dir $(DAWN_LIB)) -lwebgpu_dawn -Wl,-rpath,'$$ORIGIN'
+
+define DO_WEBGPU_CC
+$(echo_cmd) "REF_CC $<"
+$(Q)$(CC) $(SHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(WEBGPU_CFLAGS) $(OPTIMIZE) -o $@ -c $<
+endef
+
 define DO_VULKAN_CC
 $(echo_cmd) "REF_CC $<"
 $(Q)$(CC) $(SHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(VULKAN_CFLAGS) $(OPTIMIZE) -o $@ -c $<
@@ -1450,6 +1473,7 @@ makedirs:
 	@$(MKDIR) $(B)/renderergl2/glsl
 	@$(MKDIR) $(B)/renderer_gapi
 	@$(MKDIR) $(B)/renderer_gapi/Vulkan
+	@$(MKDIR) $(B)/renderer_gapi/WebGPU
 	@$(MKDIR) $(B)/ded
 	@$(MKDIR) $(B)/$(BASEGAME)/cgame
 	@$(MKDIR) $(B)/$(BASEGAME)/game
@@ -1886,6 +1910,13 @@ Q3VKOBJ = $(Q3GAPIOBJ) \
   $(B)/renderer_gapi/Vulkan/single_texture_vert.o \
   $(B)/renderer_gapi/Vulkan/vk_surface_sdl.o
 
+# The WebGPU renderer: the shared code and graphics_api/WebGPU
+Q3WGPUOBJ = $(Q3GAPIOBJ) \
+  $(B)/renderer_gapi/WebGPU/wgpu_init.o \
+  $(B)/renderer_gapi/WebGPU/wgpu_frame.o \
+  $(B)/renderer_gapi/WebGPU/wgpu_draw.o \
+  $(B)/renderer_gapi/WebGPU/wgpu_surface_sdl.o
+
 ######################################################
 
 
@@ -2014,6 +2045,11 @@ ifneq ($(USE_RENDERER_DLOPEN), 0)
 ############### VULKAN ###################
 
   Q3VKOBJ += \
+	$(B)/renderergl1/q_shared.o \
+	$(B)/renderergl1/puff.o \
+	$(B)/renderergl1/q_math.o
+
+  Q3WGPUOBJ += \
 	$(B)/renderergl1/q_shared.o \
 	$(B)/renderergl1/puff.o \
 	$(B)/renderergl1/q_math.o
@@ -2339,6 +2375,16 @@ $(B)/renderer_vulkan_$(SHLIBNAME): $(Q3VKOBJ) $(JPGOBJ)
 	$(Q)$(CC) $(CFLAGS) $(SHLIBLDFLAGS) -o $@ $(Q3VKOBJ) $(JPGOBJ) \
 		$(THREAD_LIBS) $(RENDERER_LIBS) $(LIBSDLMAIN) $(LIBS)
 
+######################## WEBGPU ##############################
+
+# The library finds libwebgpu_dawn in its own directory ($$ORIGIN).
+$(B)/renderer_webgpu_$(SHLIBNAME): $(Q3WGPUOBJ) $(JPGOBJ)
+	$(if $(DAWN_LIB),,$(error No Dawn in DAWN_DIR=$(DAWN_DIR). Run scripts/build_dawn.sh))
+	$(echo_cmd) "LD $@"
+	$(Q)$(CC) $(CFLAGS) $(SHLIBLDFLAGS) -o $@ $(Q3WGPUOBJ) $(JPGOBJ) \
+		$(THREAD_LIBS) $(RENDERER_LIBS) $(LIBSDLMAIN) $(LIBS) $(WEBGPU_LIBS)
+	$(Q)cp $(DAWN_LIB) $(B)/
+
 ##############################################################
 
 
@@ -2356,6 +2402,14 @@ $(B)/$(CLIENTBIN)_opengl2$(FULLBINEXT): $(Q3OBJ) $(Q3R2OBJ) $(Q3R2STRINGOBJ) $(J
 		$(LIBSDLMAIN) $(CLIENT_LIBS) $(RENDERER_LIBS) $(LIBS)
 
 ######################## VULKAN ##############################
+$(B)/$(CLIENTBIN)_webgpu$(FULLBINEXT): $(Q3OBJ) $(Q3WGPUOBJ) $(JPGOBJ)
+	$(if $(DAWN_LIB),,$(error No Dawn in DAWN_DIR=$(DAWN_DIR). Run scripts/build_dawn.sh))
+	$(echo_cmd) "LD $@"
+	$(Q)$(CC) $(CLIENT_CFLAGS) $(CFLAGS) $(CLIENT_LDFLAGS) $(LDFLAGS) $(NOTSHLIBLDFLAGS) \
+		-o $@ $(Q3OBJ) $(Q3WGPUOBJ) $(JPGOBJ) \
+		$(LIBSDLMAIN) $(CLIENT_LIBS) $(RENDERER_LIBS) $(LIBS) $(WEBGPU_LIBS)
+	$(Q)cp $(DAWN_LIB) $(B)/
+
 $(B)/$(CLIENTBIN)_vulkan$(FULLBINEXT): $(Q3OBJ) $(Q3VKOBJ) $(JPGOBJ)
 	$(echo_cmd) "LD $@"
 	$(Q)$(CC) $(CLIENT_CFLAGS) $(CFLAGS) $(CLIENT_LDFLAGS) $(LDFLAGS) $(NOTSHLIBLDFLAGS) \
@@ -2901,6 +2955,9 @@ $(B)/renderer_gapi/Vulkan/%.o: $(RVULKANDIR)/%.c
 $(B)/renderer_gapi/Vulkan/%.o: $(RVULKANDIR)/shaders/%.c
 	$(DO_VULKAN_CC)
 
+$(B)/renderer_gapi/WebGPU/%.o: $(RWEBGPUDIR)/%.c
+	$(DO_WEBGPU_CC)
+
 ##############################################
 
 
@@ -3027,7 +3084,7 @@ $(B)/$(MISSIONPACK)/qcommon/%.asm: $(CMDIR)/%.c $(Q3LCC)
 # MISC
 #############################################################################
 
-OBJ = $(Q3OBJ) $(Q3ROBJ) $(Q3R2OBJ) $(Q3VKOBJ) $(Q3DOBJ) $(JPGOBJ) \
+OBJ = $(Q3OBJ) $(Q3ROBJ) $(Q3R2OBJ) $(Q3VKOBJ) $(Q3WGPUOBJ) $(Q3DOBJ) $(JPGOBJ) \
   $(MPGOBJ) $(Q3GOBJ) $(Q3CGOBJ) $(MPCGOBJ) $(Q3UIOBJ) $(MPUIOBJ) \
   $(MPGVMOBJ) $(Q3GVMOBJ) $(Q3CGVMOBJ) $(MPCGVMOBJ) $(Q3UIVMOBJ) $(MPUIVMOBJ)
 TOOLSOBJ = $(LBURGOBJ) $(Q3CPPOBJ) $(Q3RCCOBJ) $(Q3LCCOBJ) $(Q3ASMOBJ)
@@ -3104,6 +3161,7 @@ clean2:
 	@rm -f $(STRINGOBJ)
 	@rm -f $(TARGETS)
 	@rm -f $(Q3VKOBJ)
+	@rm -f $(Q3WGPUOBJ)
 	
 toolsclean: toolsclean-debug toolsclean-release
 
