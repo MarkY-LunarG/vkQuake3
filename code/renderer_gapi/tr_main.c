@@ -1218,7 +1218,7 @@ static void R_SetupProjection( viewParms_t * const pViewParams)
      
             v[0] = ((i & 1) ? pViewParams->visBounds[0][0] : pViewParams->visBounds[1][0]) - o[0];
             v[1] = ((i & 2) ? pViewParams->visBounds[0][1] : pViewParams->visBounds[1][1]) - o[1];
-            v[2] = ((i & 4) ? pViewParams->visBounds[0][2] : pViewParams->visBounds[1][2]) - o[0];
+            v[2] = ((i & 4) ? pViewParams->visBounds[0][2] : pViewParams->visBounds[1][2]) - o[2];
 
             float distance = v[0]*v[0] + v[1]*v[1] + v[2]*v[2];
             
