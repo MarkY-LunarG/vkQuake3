@@ -1,6 +1,6 @@
 #include "vk_geometry.h"
 #include "vk_instance.h"
-#include "vk_image.h"
+#include "vk_texture.h"
 #include "tr_cvar.h"
 
 // The Vulkan side of the geometry and the draws (gapi.h): the vertex and index

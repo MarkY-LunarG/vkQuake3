@@ -4,7 +4,7 @@
 #include "VKimpl.h"
 #include "vk_instance.h"
 #include "tr_globals.h"
-#include "vk_image.h"
+#include "vk_texture.h"
 #include "vk_instance.h"
 #include "vk_geometry.h"
 #include "tr_pipelines.h"

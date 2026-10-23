@@ -6,7 +6,7 @@
 
 #include "VKimpl.h"
 #include "vk_instance.h"
-#include "vk_image.h"
+#include "tr_images.h"
 // outside of this file shouldn't modify glConfig
 // I want keep it locally, as it belong to OpenGL, not VulKan
 // have to use this keep backward Compatibility
@@ -342,5 +342,5 @@ void vulkanInfo_f( void )
 
     printDeviceExtensions();
 
-    gpuMemUsageInfo_f();
+    gapi_printMemoryInfo();
 }

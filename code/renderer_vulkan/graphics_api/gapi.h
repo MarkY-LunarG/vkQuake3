@@ -106,6 +106,20 @@ void gapi_waitIdle(void);
 gapi_pipeline_t* gapi_createPipeline(const gapi_pipelineDesc_t* desc);
 void gapi_destroyPipeline(gapi_pipeline_t* pipeline);
 
+// Create a 2D RGBA8 texture with mipLevels levels. mipmap selects the
+// filter between levels, and repeat selects the address mode.
+gapi_texture_t* gapi_createTexture(uint32_t width, uint32_t height, uint32_t mipLevels,
+		qboolean mipmap, qboolean repeat);
+
+// Upload numLevels levels. The levels are packed in rgba, from level 0. Each
+// level is half the size of the level before it, and at least 1 pixel.
+void gapi_uploadTexture(gapi_texture_t* tex, const unsigned char* rgba, uint32_t numLevels);
+
+void gapi_destroyTexture(gapi_texture_t* tex);
+
+// The console command that prints the texture memory use.
+void gapi_printMemoryInfo(void);
+
 // Set the vertex shader constants for the next draws.
 void gapi_setVertexConstants(const gapi_vertexConstants_t* constants);
 

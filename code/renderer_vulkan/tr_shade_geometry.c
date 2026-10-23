@@ -2,7 +2,7 @@
 #include "ref_import.h"
 #include "tr_globals.h"
 #include "tr_cvar.h"
-#include "vk_image.h"
+#include "tr_images.h"
 #include "tr_pipelines.h"
 #include "matrix_multiplication.h"
 #include "tr_backend.h"

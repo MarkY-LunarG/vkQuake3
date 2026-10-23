@@ -1,6 +1,6 @@
 #include "tr_cvar.h"
 #include "ref_import.h"
-#include "vk_image.h"
+#include "tr_images.h"
 #include "R_ImageProcess.h"
 
 

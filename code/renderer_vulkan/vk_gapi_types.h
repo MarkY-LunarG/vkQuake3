@@ -17,6 +17,11 @@ struct gapi_texture_s {
 	// Descriptor set that contains single descriptor used to access the given image.
 	// It is updated only once during image initialization.
 	VkDescriptorSet descriptor_set;
+
+	uint32_t width, height;
+	uint32_t mipLevels;
+	qboolean mipmap;
+	qboolean repeat;		// GL_REPEAT, else GL_CLAMP
 };
 
 struct gapi_pipeline_s {

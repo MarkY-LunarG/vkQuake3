@@ -1,5 +1,5 @@
 #include "tr_local.h"
-#include "vk_image.h"
+#include "tr_images.h"
 #include "tr_cvar.h"
 #include "ref_import.h"
 

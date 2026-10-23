@@ -32,7 +32,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "tr_shade_geometry.h"
 #include "vk_geometry.h"
 #include "tr_pipelines.h"
-#include "vk_image.h"
+#include "tr_images.h"
 
 #include "tr_fog.h"
 #include "tr_backend.h"
@@ -111,7 +111,7 @@ void R_Init( void )
 
     ri.Cmd_AddCommand( "pipelineList", R_PipelineList_f );
 
-    ri.Cmd_AddCommand( "gpuMem", gpuMemUsageInfo_f );
+    ri.Cmd_AddCommand( "gpuMem", gapi_printMemoryInfo );
 
     ri.Cmd_AddCommand( "printOR", R_PrintBackEnd_OR_f );
 
@@ -182,7 +182,7 @@ void RE_Shutdown( qboolean destroyWindow )
 
 	if ( tr.registered )
     {	
-		vk_destroyImageRes();
+		R_DestroyImages();
         tr.registered = qfalse;
 	}
 
