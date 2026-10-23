@@ -37,6 +37,11 @@ typedef struct {
 
 	qboolean deviceLost;
 
+	// The number of uncaptured errors. With r_webgpuFatalErrors 1, the next
+	// frame stops the game with a fatal error. Tests use this.
+	uint32_t errorCount;
+	cvar_t* fatalErrors;
+
 	// The device has the clip-distances feature.
 	qboolean clipDistances;
 

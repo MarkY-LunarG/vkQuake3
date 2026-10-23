@@ -241,6 +241,9 @@ void gapi_beginFrame(void)
     // Run the callbacks: device loss, errors, and later, buffer maps.
     wgpuInstanceProcessEvents(wg.instance);
 
+    if (wg.errorCount != 0 && wg.fatalErrors && wg.fatalErrors->integer)
+        ri.Error(ERR_FATAL, "WebGPU: %u errors, and r_webgpuFatalErrors is 1\n", wg.errorCount);
+
     if (wg.deviceLost)
     {
         // Restart the renderer, as for other fatal graphics errors.

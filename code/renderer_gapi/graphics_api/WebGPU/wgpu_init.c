@@ -80,6 +80,9 @@ static void wgpu_onUncapturedError(WGPUDevice const* device, WGPUErrorType type,
 {
     char text[2048];
     ri.Printf(PRINT_WARNING, "WebGPU error (%d): %s\n", (int)type, wgpu_cString(message, text, sizeof(text)));
+    // Dawn calls this function from inside a WebGPU call, so ri.Error cannot
+    // be called here. gapi_beginFrame examines the count.
+    wg.errorCount++;
 }
 
 
@@ -187,6 +190,9 @@ qboolean gapi_init(struct SDL_Window* window)
     ri.Printf(PRINT_ALL, " *** WebGPU Initialization ***\n");
 
     memset(&wg, 0, sizeof(wg));
+
+    // Tests set this to stop at the first WebGPU error.
+    wg.fatalErrors = ri.Cvar_Get("r_webgpuFatalErrors", "0", CVAR_TEMP);
 
     WGPUInstanceFeatureName instanceFeatures[1] = { WGPUInstanceFeatureName_TimedWaitAny };
     WGPUInstanceDescriptor instanceDesc = WGPU_INSTANCE_DESCRIPTOR_INIT;
