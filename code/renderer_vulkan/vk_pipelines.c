@@ -759,7 +759,7 @@ void create_standard_pipelines(void)
             def.shadow_phase = SHADOWS_RENDERING_EDGES;
 
             cullType_t cull_types[2] = {CT_FRONT_SIDED, CT_BACK_SIDED};
-            VkBool32 mirror_flags[2] = {VK_TRUE, VK_FALSE};
+            VkBool32 mirror_flags[2] = {VK_FALSE, VK_TRUE};
 
             int i = 0; 
             int j = 0;

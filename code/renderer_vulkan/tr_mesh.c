@@ -28,6 +28,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "ref_import.h"
 #include "tr_light.h"
+#include "tr_shader.h"
 
 
 static int R_CullModel( md3Header_t *header, trRefEntity_t *ent )
@@ -285,9 +286,14 @@ void R_AddMD3Surfaces( trRefEntity_t *ent )
 	//
 	// set up lighting now that we know we aren't culled
 	//
-	if ( !personalModel) {
+	if ( !personalModel || r_shadows->integer > 1 ) {
 		R_SetupEntityLighting( &tr.refdef, ent );
 	}
+
+	//
+	// see if we are in a fog volume
+	//
+	fogNum = R_ComputeFogNum( header, ent );
 
 	//
 	// draw all surfaces
@@ -333,11 +339,26 @@ void R_AddMD3Surfaces( trRefEntity_t *ent )
 
 		// we will add shadows even if the main object isn't visible in the view
 
+		// stencil shadows can't do personal models unless I polyhedron clip
+		if ( !personalModel
+			&& r_shadows->integer == 2
+			&& fogNum == 0
+			&& !(ent->e.renderfx & ( RF_NOSHADOW | RF_DEPTHHACK ) )
+			&& shader->sort == SS_OPAQUE ) {
+			R_AddDrawSurf( (void *)surface, tr.shadowShader, 0, qfalse );
+		}
+
+		// projection shadows work fine with personal models
+		if ( r_shadows->integer == 3
+			&& fogNum == 0
+			&& (ent->e.renderfx & RF_SHADOW_PLANE )
+			&& shader->sort == SS_OPAQUE ) {
+			R_AddDrawSurf( (void *)surface, tr.projectionShadowShader, 0, qfalse );
+		}
+
 		// don't add third_person objects if not viewing through a portal
 		if ( !personalModel )
         {
-	        // see if we are in a fog volume
-	        fogNum = R_ComputeFogNum( header, ent );
 			R_AddDrawSurf( (void *)surface, shader, fogNum, qfalse );
 		}
 
