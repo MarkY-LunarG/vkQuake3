@@ -31,6 +31,10 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <ctype.h>
 #include <errno.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#endif
+
 #ifndef DEDICATED
 #ifdef USE_LOCAL_HEADERS
 #	include "../SDL2/include/SDL.h"
@@ -762,10 +766,15 @@ int main( int argc, char **argv )
 	signal( SIGTERM, Sys_SigHandler );
 	signal( SIGINT, Sys_SigHandler );
 
+#ifdef __EMSCRIPTEN__
+	// The browser calls Com_Frame for each frame.
+	emscripten_set_main_loop( Com_Frame, 0, 1 );
+#else
 	while( 1 )
 	{
 		Com_Frame( );
 	}
+#endif
 
 	return 0;
 }

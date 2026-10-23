@@ -86,12 +86,15 @@ static void wgpu_onUncapturedError(WGPUDevice const* device, WGPUErrorType type,
 }
 
 
+// The Dawn log. The browser WebGPU API (emdawnwebgpu) has no logging callback.
+#ifndef __EMSCRIPTEN__
 static void wgpu_onLog(WGPULoggingType type, WGPUStringView message, void* userdata1, void* userdata2)
 {
     char text[2048];
     ri.Printf(type >= WGPULoggingType_Warning ? PRINT_WARNING : PRINT_DEVELOPER,
             "Dawn: %s\n", wgpu_cString(message, text, sizeof(text)));
 }
+#endif
 
 
 // The only place that waits for the adapter and the device. In a browser
@@ -227,9 +230,11 @@ qboolean gapi_init(struct SDL_Window* window)
     }
     wgpuSurfaceCapabilitiesFreeMembers(caps);
 
+#ifndef __EMSCRIPTEN__
     WGPULoggingCallbackInfo logging = WGPU_LOGGING_CALLBACK_INFO_INIT;
     logging.callback = wgpu_onLog;
     wgpuDeviceSetLoggingCallback(wg.device, logging);
+#endif
 
     wg.queue = wgpuDeviceGetQueue(wg.device);
 

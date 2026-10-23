@@ -68,6 +68,27 @@ PLATFORM=$(COMPILE_PLATFORM)
 endif
 export PLATFORM
 
+# Emscripten (browser): "emmake make PLATFORM=emscripten", after
+# "source <emsdk>/emsdk_env.sh". Only the client with the WebGPU renderer is
+# built, as one .js and .wasm. The game code runs as QVM from the paks.
+ifeq ($(PLATFORM),emscripten)
+  ARCH=wasm32
+  BUILD_SERVER=0
+  BUILD_GAME_SO=0
+  BUILD_GAME_QVM=0
+  BUILD_RENDERER_OPENGL2=0
+  BUILD_RENDERER_WEBGPU=1
+  USE_RENDERER_DLOPEN=0
+  USE_OPENAL=0
+  USE_CURL=0
+  USE_CODEC_VORBIS=0
+  USE_CODEC_OPUS=0
+  USE_MUMBLE=0
+  USE_VOIP=0
+  USE_FREETYPE=0
+  USE_LOCAL_HEADERS=0
+endif
+
 ifeq ($(PLATFORM),mingw32)
   MINGW=1
 endif
@@ -266,6 +287,11 @@ RWEBGPUDIR=$(RGAPIDIR)/graphics_api/WebGPU
 # library that the game loads, and DAWN_RUNTIME has the files that the build
 # copies next to the renderer.
 DAWN_DIR ?= $(CURDIR)/build/dawn-install
+ifeq ($(PLATFORM),emscripten)
+  # The browser has WebGPU. The emdawnwebgpu port gives webgpu.h.
+  DAWN_LIB =
+  DAWN_RUNTIME =
+else
 ifeq ($(PLATFORM),mingw32)
   # Dawn is built with MSVC: webgpu_dawn.dll is in bin, and the import
   # library is in lib. The MinGW linker can use the import library or the DLL.
@@ -279,6 +305,7 @@ ifeq ($(PLATFORM),darwin)
 else
   DAWN_LIB = $(firstword $(wildcard $(DAWN_DIR)/lib64/libwebgpu_dawn.so $(DAWN_DIR)/lib/libwebgpu_dawn.so))
   DAWN_RUNTIME = $(DAWN_LIB)
+endif
 endif
 endif
 CMDIR=$(MOUNT_DIR)/qcommon
@@ -374,6 +401,48 @@ CLIENT_EXTRA_FILES=
 ifneq (,$(findstring "$(COMPILE_PLATFORM)", "linux" "gnu_kfreebsd" "kfreebsd-gnu" "gnu"))
   TOOLS_CFLAGS += -DARCH_STRING=\"$(COMPILE_ARCH)\"
 endif
+
+ifeq ($(PLATFORM),emscripten)
+
+#############################################################################
+# SETUP AND BUILD -- EMSCRIPTEN
+#############################################################################
+
+  ifeq ($(origin CC),default)
+    CC=emcc
+  endif
+
+  # -sUSE_SDL=2: the SDL2 port of Emscripten, for the window, input, and
+  # sound. The WebGPU flags are in WEBGPU_CFLAGS and WEBGPU_LIBS.
+  # q_platform.h defines ARCH_STRING for __EMSCRIPTEN__.
+  BASE_CFLAGS = -Wall -fno-strict-aliasing -Wimplicit -Wstrict-prototypes -sUSE_SDL=2
+
+  OPTIMIZEVM = -O2
+  OPTIMIZE = $(OPTIMIZEVM) -ffast-math
+  HAVE_VM_COMPILED = false
+
+  SHLIBEXT=wasm
+  SHLIBCFLAGS=
+  SHLIBLDFLAGS=
+  BINEXT=.js
+
+  LIBS=-lm
+  CLIENT_LIBS=-sUSE_SDL=2
+  RENDERER_LIBS=
+
+  # ASYNCIFY: wgpuInstanceWaitAny waits for the WebGPU adapter and device at
+  # startup, and for the pixels of a screenshot.
+  CLIENT_LDFLAGS += \
+    -sINITIAL_MEMORY=256MB \
+    -sALLOW_MEMORY_GROWTH=1 \
+    -sSTACK_SIZE=5MB \
+    -sASYNCIFY=1 \
+    -sEXIT_RUNTIME=1 \
+    -sEXPORT_ES6=1 \
+    -sEXPORT_NAME=$(CLIENTBIN) \
+    -sEXPORTED_RUNTIME_METHODS=FS,addRunDependency,removeRunDependency
+
+else # ifeq emscripten
 
 ifneq (,$(findstring "$(PLATFORM)", "linux" "gnu_kfreebsd" "kfreebsd-gnu" "gnu"))
   BASE_CFLAGS = -Wall -fno-strict-aliasing -Wimplicit -Wstrict-prototypes \
@@ -993,6 +1062,7 @@ endif #OpenBSD
 endif #NetBSD
 endif #IRIX
 endif #SunOS
+endif #emscripten
 
 ifndef CC
   CC=gcc
@@ -1034,6 +1104,10 @@ ifneq ($(BUILD_CLIENT),0)
       TARGETS += $(B)/renderer_webgpu_$(SHLIBNAME)
     endif
   else
+  ifeq ($(PLATFORM),emscripten)
+    # A browser has WebGPU, but not Vulkan or desktop OpenGL.
+    TARGETS += $(B)/$(CLIENTBIN)_webgpu$(FULLBINEXT)
+  else
     TARGETS += $(B)/$(CLIENTBIN)$(FULLBINEXT)
     ifneq ($(BUILD_RENDERER_OPENGL2),0)
       TARGETS += $(B)/$(CLIENTBIN)_opengl2$(FULLBINEXT)
@@ -1044,6 +1118,7 @@ ifneq ($(BUILD_CLIENT),0)
     ifneq ($(BUILD_RENDERER_WEBGPU),0)
       TARGETS += $(B)/$(CLIENTBIN)_webgpu$(FULLBINEXT)
     endif
+  endif
   endif
 endif
 
@@ -1270,6 +1345,11 @@ endef
 
 WEBGPU_CFLAGS = $(GAPI_CFLAGS) -I$(RWEBGPUDIR) -I$(DAWN_DIR)/include
 # The renderer finds the Dawn library in its own directory.
+ifeq ($(PLATFORM),emscripten)
+  # emdawnwebgpu: the webgpu.h of Dawn for the browser WebGPU API.
+  WEBGPU_CFLAGS = $(GAPI_CFLAGS) -I$(RWEBGPUDIR) --use-port=emdawnwebgpu
+  WEBGPU_LIBS = --use-port=emdawnwebgpu
+else
 ifeq ($(PLATFORM),mingw32)
   # Windows searches the directory of the executable.
   WEBGPU_LIBS = $(DAWN_LINK)
@@ -1279,6 +1359,7 @@ ifeq ($(PLATFORM),darwin)
   WEBGPU_LIBS = -L$(dir $(DAWN_LIB)) -lwebgpu_dawn -lobjc -Wl,-rpath,@loader_path
 else
   WEBGPU_LIBS = -L$(dir $(DAWN_LIB)) -lwebgpu_dawn -Wl,-rpath,'$$ORIGIN'
+endif
 endif
 endif
 
@@ -1844,7 +1925,7 @@ Q3OBJ = \
   $(B)/client/sys_autoupdater.o \
   $(B)/client/sys_main.o
 
-ifdef MINGW
+ifneq ($(MINGW)$(filter emscripten,$(PLATFORM)),)
   Q3OBJ += \
     $(B)/client/con_passive.o
 else
@@ -2445,12 +2526,12 @@ $(B)/$(CLIENTBIN)_opengl2$(FULLBINEXT): $(Q3OBJ) $(Q3R2OBJ) $(Q3R2STRINGOBJ) $(J
 
 ######################## VULKAN ##############################
 $(B)/$(CLIENTBIN)_webgpu$(FULLBINEXT): $(Q3OBJ) $(Q3WGPUOBJ) $(JPGOBJ)
-	$(if $(DAWN_LIB),,$(error No Dawn in DAWN_DIR=$(DAWN_DIR). Run scripts/build_dawn.sh))
+	$(if $(or $(DAWN_LIB),$(filter emscripten,$(PLATFORM))),,$(error No Dawn in DAWN_DIR=$(DAWN_DIR). Run scripts/build_dawn.sh))
 	$(echo_cmd) "LD $@"
 	$(Q)$(CC) $(CLIENT_CFLAGS) $(CFLAGS) $(CLIENT_LDFLAGS) $(LDFLAGS) $(NOTSHLIBLDFLAGS) \
 		-o $@ $(Q3OBJ) $(Q3WGPUOBJ) $(JPGOBJ) \
 		$(LIBSDLMAIN) $(CLIENT_LIBS) $(RENDERER_LIBS) $(LIBS) $(WEBGPU_LIBS)
-	$(Q)cp $(DAWN_RUNTIME) $(B)/
+	$(if $(DAWN_RUNTIME),$(Q)cp $(DAWN_RUNTIME) $(B)/)
 
 $(B)/$(CLIENTBIN)_vulkan$(FULLBINEXT): $(Q3OBJ) $(Q3VKOBJ) $(JPGOBJ)
 	$(echo_cmd) "LD $@"

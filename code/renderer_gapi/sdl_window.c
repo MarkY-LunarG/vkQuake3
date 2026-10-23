@@ -255,7 +255,7 @@ static int R_GetVideoDrivers(const char* drivers[MAX_VIDEO_DRIVERS], qboolean* p
 		return 1;
 	}
 
-#if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__)
+#if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
 	// Wayland first. If the graphics API cannot start there, use X11.
 	drivers[0] = "wayland";
 	drivers[1] = "x11";

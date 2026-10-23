@@ -44,6 +44,16 @@ uint32_t gapi_sdlWindowFlags(void)
 
 WGPUSurface wgpu_createSurfaceImpl(WGPUInstance instance, SDL_Window* window)
 {
+#ifdef __EMSCRIPTEN__
+    // The SDL window of Emscripten is the canvas with the id "canvas"
+    // (Module.canvas in the web page).
+    WGPUEmscriptenSurfaceSourceCanvasHTMLSelector canvas = WGPU_EMSCRIPTEN_SURFACE_SOURCE_CANVAS_HTML_SELECTOR_INIT;
+    canvas.selector = wgpu_stringView("#canvas");
+    WGPUSurfaceDescriptor canvasDesc = WGPU_SURFACE_DESCRIPTOR_INIT;
+    canvasDesc.nextInChain = &canvas.chain;
+    ri.Printf(PRINT_ALL, " Create a WebGPU surface for the canvas.\n");
+    return wgpuInstanceCreateSurface(instance, &canvasDesc);
+#else
     SDL_SysWMinfo info;
     SDL_VERSION(&info.version);
 
@@ -114,4 +124,5 @@ WGPUSurface wgpu_createSurfaceImpl(WGPUInstance instance, SDL_Window* window)
             ri.Printf(PRINT_WARNING, "WebGPU: the SDL window system %d is not supported\n", info.subsystem);
             return NULL;
     }
+#endif
 }
