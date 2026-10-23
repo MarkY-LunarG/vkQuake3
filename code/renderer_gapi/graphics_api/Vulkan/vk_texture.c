@@ -55,9 +55,10 @@ static struct deviceLocalMemory_t devMemImg;
 
 void gapi_printMemoryInfo(void)
 {
-    // approm	 for debug info
-    ri.Printf(PRINT_ALL, "Number of image: %d chuck memory(device local) used: %d M \n", 
-           s_numTextures, devMemImg.Index * (IMAGE_CHUNK_SIZE>>20) );
+    // The first line has the same format as in the WebGPU backend.
+    ri.Printf(PRINT_ALL, "Number of textures: %d\n", s_numTextures);
+    ri.Printf(PRINT_ALL, "Device local memory of the image chunks: %d MB\n",
+           devMemImg.Index * (IMAGE_CHUNK_SIZE>>20) );
 }
 
 
