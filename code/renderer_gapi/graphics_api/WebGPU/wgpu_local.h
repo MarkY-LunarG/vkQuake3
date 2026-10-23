@@ -24,6 +24,14 @@ typedef struct {
 	qboolean configured;
 	qboolean reconfigure;		// configure the surface again before the next frame
 
+	// Without the CopySrc usage, screenshots cannot copy the surface texture.
+	// The frame is then drawn into this texture, and gapi_endFrame copies it to
+	// the surface. r_webgpuOffscreen 1 uses this path on all surfaces (tests).
+	qboolean offscreen;
+	WGPUTexture offscreenTexture;
+	WGPUTextureView offscreenView;
+	cvar_t* forceOffscreen;
+
 	// The depth and stencil attachment, with the size of the surface.
 	WGPUTexture depthTexture;
 	WGPUTextureView depthView;
@@ -106,6 +114,9 @@ void wgpu_writeGeometryFrame(void);
 void wgpu_createDrawResources(void);
 void wgpu_releaseDrawResources(void);
 void wgpu_keepLastFrame(void);
+// Copy the offscreen texture to the surface texture, after the render pass of
+// the frame.
+void wgpu_blitToSurface(void);
 
 // A string view from a C string, and a C string from a string view.
 WGPUStringView wgpu_stringView(const char* text);

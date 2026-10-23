@@ -57,6 +57,16 @@ static const char* wgpu_presentModeName(WGPUPresentMode mode)
 
 static void wgpu_releaseDepth(void)
 {
+    if (wg.offscreenView)
+        wgpuTextureViewRelease(wg.offscreenView);
+    if (wg.offscreenTexture)
+    {
+        wgpuTextureDestroy(wg.offscreenTexture);
+        wgpuTextureRelease(wg.offscreenTexture);
+    }
+    wg.offscreenView = NULL;
+    wg.offscreenTexture = NULL;
+
     if (wg.depthView)
         wgpuTextureViewRelease(wg.depthView);
     if (wg.depthTexture)
@@ -131,10 +141,13 @@ qboolean wgpu_configureSurface(void)
         wg.surfaceFormat = caps.formats[0];
     }
 
-    // Screenshots copy from the surface texture.
+    // Screenshots copy from the surface texture. If the surface cannot be
+    // copied, the frame is drawn into an offscreen texture.
     wg.surfaceUsage = WGPUTextureUsage_RenderAttachment;
     if (caps.usages & WGPUTextureUsage_CopySrc)
         wg.surfaceUsage |= WGPUTextureUsage_CopySrc;
+    wg.offscreen = !(wg.surfaceUsage & WGPUTextureUsage_CopySrc) ||
+            (wg.forceOffscreen && wg.forceOffscreen->integer);
 
     wg.presentMode = wgpu_selectPresentMode(&caps);
     wgpuSurfaceCapabilitiesFreeMembers(caps);
@@ -154,6 +167,9 @@ qboolean wgpu_configureSurface(void)
 
     ri.Printf(PRINT_ALL, " WebGPU surface: %u x %u, format %d, present mode %s (r_swapInterval %d)\n",
             wg.width, wg.height, (int)wg.surfaceFormat, wgpu_presentModeName(wg.presentMode), s_swapInterval);
+    if (wg.offscreen)
+        ri.Printf(PRINT_ALL, " WebGPU: the frame is drawn into an offscreen texture%s\n",
+                (wg.surfaceUsage & WGPUTextureUsage_CopySrc) ? " (r_webgpuOffscreen 1)" : ", because the surface cannot be copied");
 
     // The depth and stencil attachment. The stencil is for cg_shadows 2.
     wgpu_releaseDepth();
@@ -169,6 +185,23 @@ qboolean wgpu_configureSurface(void)
     depthDesc.sampleCount = 1;
     wg.depthTexture = wgpuDeviceCreateTexture(wg.device, &depthDesc);
     wg.depthView = wgpuTextureCreateView(wg.depthTexture, NULL);
+
+    if (wg.offscreen)
+    {
+        WGPUTextureDescriptor colorDesc = WGPU_TEXTURE_DESCRIPTOR_INIT;
+        colorDesc.label = wgpu_stringView("offscreen color");
+        colorDesc.usage = WGPUTextureUsage_RenderAttachment | WGPUTextureUsage_CopySrc |
+                WGPUTextureUsage_TextureBinding;
+        colorDesc.dimension = WGPUTextureDimension_2D;
+        colorDesc.size.width = wg.width;
+        colorDesc.size.height = wg.height;
+        colorDesc.size.depthOrArrayLayers = 1;
+        colorDesc.format = wg.surfaceFormat;
+        colorDesc.mipLevelCount = 1;
+        colorDesc.sampleCount = 1;
+        wg.offscreenTexture = wgpuDeviceCreateTexture(wg.device, &colorDesc);
+        wg.offscreenView = wgpuTextureCreateView(wg.offscreenTexture, NULL);
+    }
 
     wg.reconfigure = qfalse;
     return qtrue;
@@ -270,7 +303,7 @@ void gapi_beginFrame(void)
     // Clear all attachments at the start of the frame, as the Vulkan render
     // pass does for the depth and the stencil.
     WGPURenderPassColorAttachment color = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
-    color.view = wg.frameView;
+    color.view = wg.offscreen ? wg.offscreenView : wg.frameView;
     color.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
     color.loadOp = WGPULoadOp_Clear;
     color.storeOp = WGPUStoreOp_Store;
@@ -313,6 +346,9 @@ void gapi_endFrame(void)
 
     // Keep a copy for screenshots and video capture.
     wgpu_keepLastFrame();
+
+    if (wg.offscreen)
+        wgpu_blitToSurface();
 
     WGPUCommandBuffer commands = wgpuCommandEncoderFinish(wg.encoder, NULL);
     wgpuQueueSubmit(wg.queue, 1, &commands);

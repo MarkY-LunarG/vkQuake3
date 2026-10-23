@@ -8,6 +8,10 @@
 // and RC_VIDEOFRAME come before the next frame). The surface texture is not
 // valid after wgpuSurfacePresent, so gapi_endFrame copies it to a texture
 // first, and gapi_readPixels reads that texture.
+//
+// If the surface cannot be copied (no CopySrc usage), the frame is drawn into
+// an offscreen texture (wgpu_frame.c). gapi_endFrame copies that texture for
+// gapi_readPixels, and then draws it into the surface texture.
 
 #include "wgpu_local.h"
 
@@ -23,6 +27,22 @@ static const char s_clearShader[] =
     "    // The blend state gives the color: the blend constant.\n"
     "    return vec4f(0.0, 0.0, 0.0, 0.0);\n"
     "}\n";
+
+// The copy of the offscreen texture to the surface: one triangle that covers
+// the surface, and a fragment shader that loads the pixel at its position.
+static const char s_blitShader[] =
+    "@group(0) @binding(0) var source : texture_2d<f32>;\n"
+    "@vertex fn vs(@builtin(vertex_index) i : u32) -> @builtin(position) vec4f {\n"
+    "    let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));\n"
+    "    return vec4f(p * 2.0 - 1.0, 0.0, 1.0);\n"
+    "}\n"
+    "@fragment fn fs(@builtin(position) position : vec4f) -> @location(0) vec4f {\n"
+    "    return textureLoad(source, vec2i(position.xy), 0);\n"
+    "}\n";
+
+static WGPURenderPipeline s_blitPipeline;
+static WGPUBindGroup s_blitBindGroup;
+static WGPUTextureView s_blitSource;      // the view in s_blitBindGroup
 
 typedef enum {
     CLEAR_COLOR,
@@ -108,6 +128,32 @@ void wgpu_createDrawResources(void)
 
     wgpuPipelineLayoutRelease(layout);
     wgpuShaderModuleRelease(module);
+
+    // The blit pipeline. Its bind group layout comes from the shader.
+    source.code = wgpu_stringView(s_blitShader);
+    moduleDesc.label = wgpu_stringView("blit");
+    module = wgpuDeviceCreateShaderModule(wg.device, &moduleDesc);
+
+    WGPUColorTargetState target = WGPU_COLOR_TARGET_STATE_INIT;
+    target.format = wg.surfaceFormat;
+    WGPUFragmentState fragment = WGPU_FRAGMENT_STATE_INIT;
+    fragment.module = module;
+    fragment.entryPoint = wgpu_stringView("fs");
+    fragment.targetCount = 1;
+    fragment.targets = &target;
+
+    WGPURenderPipelineDescriptor desc = WGPU_RENDER_PIPELINE_DESCRIPTOR_INIT;
+    desc.label = wgpu_stringView("blit");
+    desc.vertex.module = module;
+    desc.vertex.entryPoint = wgpu_stringView("vs");
+    desc.primitive.topology = WGPUPrimitiveTopology_TriangleList;
+    desc.primitive.cullMode = WGPUCullMode_None;
+    desc.multisample.count = 1;
+    desc.multisample.mask = 0xFFFFFFFF;
+    desc.fragment = &fragment;
+    s_blitPipeline = wgpuDeviceCreateRenderPipeline(wg.device, &desc);
+
+    wgpuShaderModuleRelease(module);
 }
 
 
@@ -127,6 +173,14 @@ void wgpu_releaseDrawResources(void)
     }
     s_lastFrame = NULL;
     s_lastFrameValid = qfalse;
+
+    if (s_blitBindGroup)
+        wgpuBindGroupRelease(s_blitBindGroup);
+    if (s_blitPipeline)
+        wgpuRenderPipelineRelease(s_blitPipeline);
+    s_blitBindGroup = NULL;
+    s_blitPipeline = NULL;
+    s_blitSource = NULL;
 }
 
 
@@ -176,7 +230,9 @@ void gapi_clearDepthStencil(const gapi_rect_t* rect, qboolean stencil)
 // of the frame has ended.
 void wgpu_keepLastFrame(void)
 {
-    if (!(wg.surfaceUsage & WGPUTextureUsage_CopySrc))
+    // The texture that the render pass drew.
+    WGPUTexture drawn = wg.offscreen ? wg.offscreenTexture : wg.frameTexture;
+    if (!wg.offscreen && !(wg.surfaceUsage & WGPUTextureUsage_CopySrc))
         return;
 
     if (s_lastFrame == NULL || s_lastFrameWidth != wg.width || s_lastFrameHeight != wg.height ||
@@ -205,12 +261,54 @@ void wgpu_keepLastFrame(void)
     }
 
     WGPUTexelCopyTextureInfo src = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
-    src.texture = wg.frameTexture;
+    src.texture = drawn;
     WGPUTexelCopyTextureInfo dst = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT;
     dst.texture = s_lastFrame;
     WGPUExtent3D extent = { wg.width, wg.height, 1 };
     wgpuCommandEncoderCopyTextureToTexture(wg.encoder, &src, &dst, &extent);
     s_lastFrameValid = qtrue;
+}
+
+
+void wgpu_blitToSurface(void)
+{
+    if (s_blitSource != wg.offscreenView)
+    {
+        // The offscreen texture is new (surface configuration).
+        if (s_blitBindGroup)
+            wgpuBindGroupRelease(s_blitBindGroup);
+
+        WGPUBindGroupLayout layout = wgpuRenderPipelineGetBindGroupLayout(s_blitPipeline, 0);
+        WGPUBindGroupEntry entry = WGPU_BIND_GROUP_ENTRY_INIT;
+        entry.binding = 0;
+        entry.textureView = wg.offscreenView;
+        WGPUBindGroupDescriptor groupDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+        groupDesc.label = wgpu_stringView("blit");
+        groupDesc.layout = layout;
+        groupDesc.entryCount = 1;
+        groupDesc.entries = &entry;
+        s_blitBindGroup = wgpuDeviceCreateBindGroup(wg.device, &groupDesc);
+        wgpuBindGroupLayoutRelease(layout);
+        s_blitSource = wg.offscreenView;
+    }
+
+    WGPURenderPassColorAttachment color = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT;
+    color.view = wg.frameView;
+    color.depthSlice = WGPU_DEPTH_SLICE_UNDEFINED;
+    // The triangle covers the surface, so the clear only gives a defined start.
+    color.loadOp = WGPULoadOp_Clear;
+    color.storeOp = WGPUStoreOp_Store;
+
+    WGPURenderPassDescriptor passDesc = WGPU_RENDER_PASS_DESCRIPTOR_INIT;
+    passDesc.label = wgpu_stringView("blit");
+    passDesc.colorAttachmentCount = 1;
+    passDesc.colorAttachments = &color;
+    WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(wg.encoder, &passDesc);
+    wgpuRenderPassEncoderSetPipeline(pass, s_blitPipeline);
+    wgpuRenderPassEncoderSetBindGroup(pass, 0, s_blitBindGroup, 0, NULL);
+    wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0);
+    wgpuRenderPassEncoderEnd(pass);
+    wgpuRenderPassEncoderRelease(pass);
 }
 
 
@@ -224,19 +322,7 @@ void gapi_readPixels(unsigned char* rgba, uint32_t width, uint32_t height)
 {
     memset(rgba, 0, (size_t)width * height * 4);
 
-    if (!wg.initialized)
-        return;
-
-    if (!(wg.surfaceUsage & WGPUTextureUsage_CopySrc))
-    {
-        static qboolean warned = qfalse;
-        if (!warned)
-            ri.Printf(PRINT_WARNING, "WebGPU: the surface cannot be copied, the pixels are black\n");
-        warned = qtrue;
-        return;
-    }
-
-    if (!s_lastFrameValid)
+    if (!wg.initialized || !s_lastFrameValid)
         return;
 
     width = MIN(width, s_lastFrameWidth);

@@ -193,6 +193,8 @@ qboolean gapi_init(struct SDL_Window* window)
 
     // Tests set this to stop at the first WebGPU error.
     wg.fatalErrors = ri.Cvar_Get("r_webgpuFatalErrors", "0", CVAR_TEMP);
+    // Tests set this to draw into an offscreen texture on all surfaces.
+    wg.forceOffscreen = ri.Cvar_Get("r_webgpuOffscreen", "0", CVAR_LATCH | CVAR_TEMP);
 
     WGPUInstanceFeatureName instanceFeatures[1] = { WGPUInstanceFeatureName_TimedWaitAny };
     WGPUInstanceDescriptor instanceDesc = WGPU_INSTANCE_DESCRIPTOR_INIT;

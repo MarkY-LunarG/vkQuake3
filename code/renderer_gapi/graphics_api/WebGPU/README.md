@@ -70,6 +70,18 @@ The renderer finds `libwebgpu_dawn.dylib` in its own directory (`@loader_path`).
 `make-macosx-app.sh` does not put the Vulkan or the WebGPU renderer into the application bundle.
 Run the game from the build directory.
 
+## Test cvars
+
+| Cvar | Effect |
+|---|---|
+| `r_webgpuFatalErrors 1` | The first uncaptured WebGPU error stops the game with a fatal error |
+| `r_webgpuOffscreen 1` | The frame is drawn into an offscreen texture on all surfaces (set it at startup) |
+
+Screenshots and video capture copy the texture of the frame.
+If the surface has no `CopySrc` usage, the backend always draws into an offscreen texture and
+copies it to the surface at the end of the frame.
+`r_webgpuOffscreen 1` tests this path on a surface that has `CopySrc`.
+
 ## Backend
 
 | File | Content |
