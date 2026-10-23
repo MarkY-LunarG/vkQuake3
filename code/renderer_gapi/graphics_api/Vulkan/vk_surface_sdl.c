@@ -31,13 +31,13 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 
 #ifdef _WIN32
-    #include "../SDL2/include/SDL.h"
-    #include "../SDL2/include/SDL_vulkan.h"
+    #include "../../../SDL2/include/SDL.h"
+    #include "../../../SDL2/include/SDL_vulkan.h"
 #else
 
   #ifdef USE_LOCAL_HEADERS
-    #include "../SDL2/include/SDL.h"
-    #include "../SDL2/include/SDL_vulkan.h"
+    #include "../../../SDL2/include/SDL.h"
+    #include "../../../SDL2/include/SDL_vulkan.h"
   #else
     #include <SDL2/SDL.h>
     #include <SDL2/SDL_syswm.h>

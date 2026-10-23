@@ -248,7 +248,8 @@ SDIR=$(MOUNT_DIR)/server
 RCOMMONDIR=$(MOUNT_DIR)/renderercommon
 RGL1DIR=$(MOUNT_DIR)/renderergl1
 RGL2DIR=$(MOUNT_DIR)/renderergl2
-RVULKANDIR=$(MOUNT_DIR)/renderer_vulkan
+RGAPIDIR=$(MOUNT_DIR)/renderer_gapi
+RVULKANDIR=$(RGAPIDIR)/graphics_api/Vulkan
 CMDIR=$(MOUNT_DIR)/qcommon
 SDLDIR=$(MOUNT_DIR)/sdl
 ASMDIR=$(MOUNT_DIR)/asm
@@ -1220,6 +1221,21 @@ $(echo_cmd) "REF_CC $<"
 $(Q)$(CC) $(SHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(OPTIMIZE) -o $@ -c $<
 endef
 
+# The renderer code that all graphics APIs share gets only its own include
+# directory, so it cannot include the headers of a graphics API.
+GAPI_CFLAGS = -I$(RGAPIDIR)
+VULKAN_CFLAGS = $(GAPI_CFLAGS) -I$(RVULKANDIR) -I$(RVULKANDIR)/include
+
+define DO_GAPI_CC
+$(echo_cmd) "REF_CC $<"
+$(Q)$(CC) $(SHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(GAPI_CFLAGS) $(OPTIMIZE) -o $@ -c $<
+endef
+
+define DO_VULKAN_CC
+$(echo_cmd) "REF_CC $<"
+$(Q)$(CC) $(SHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(VULKAN_CFLAGS) $(OPTIMIZE) -o $@ -c $<
+endef
+
 define DO_REF_CC_ALTIVEC
 $(echo_cmd) "REF_CC $<"
 $(Q)$(CC) $(SHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(OPTIMIZE) $(ALTIVEC_CFLAGS) -o $@ -c $<
@@ -1432,7 +1448,8 @@ makedirs:
 	@$(MKDIR) $(B)/renderergl1
 	@$(MKDIR) $(B)/renderergl2
 	@$(MKDIR) $(B)/renderergl2/glsl
-	@$(MKDIR) $(B)/renderer_vulkan
+	@$(MKDIR) $(B)/renderer_gapi
+	@$(MKDIR) $(B)/renderer_gapi/Vulkan
 	@$(MKDIR) $(B)/ded
 	@$(MKDIR) $(B)/$(BASEGAME)/cgame
 	@$(MKDIR) $(B)/$(BASEGAME)/game
@@ -1782,93 +1799,92 @@ endif
 
 ######################  VULKAN  ######################
 
-Q3VKOBJ = \
-  $(B)/renderer_vulkan/matrix_multiplication.o \
-  $(B)/renderer_vulkan/tr_globals.o \
-  $(B)/renderer_vulkan/tr_cvar.o \
-  $(B)/renderer_vulkan/tr_animation.o \
-  $(B)/renderer_vulkan/tr_bsp.o \
-  $(B)/renderer_vulkan/tr_cmds.o \
-  $(B)/renderer_vulkan/tr_curve.o \
-  $(B)/renderer_vulkan/tr_fonts.o \
-  $(B)/renderer_vulkan/tr_image.o \
-  $(B)/renderer_vulkan/R_FindShader.o \
-  $(B)/renderer_vulkan/R_ListShader.o \
-  $(B)/renderer_vulkan/R_ImageProcess.o \
-  $(B)/renderer_vulkan/tr_init.o \
-  $(B)/renderer_vulkan/tr_light.o \
-  $(B)/renderer_vulkan/tr_main.o \
-  $(B)/renderer_vulkan/tr_marks.o \
-  $(B)/renderer_vulkan/tr_mesh.o \
-  $(B)/renderer_vulkan/tr_model.o \
-  $(B)/renderer_vulkan/tr_model_iqm.o \
-  $(B)/renderer_vulkan/RE_RegisterModel.o \
-  $(B)/renderer_vulkan/R_ModelBounds.o \
-  $(B)/renderer_vulkan/R_LoadMD3.o \
-  $(B)/renderer_vulkan/R_LoadMDR.o \
-  $(B)/renderer_vulkan/R_LerpTag.o \
-  $(B)/renderer_vulkan/tr_noise.o \
-  $(B)/renderer_vulkan/tr_scene.o \
-  $(B)/renderer_vulkan/tr_shade.o \
-  $(B)/renderer_vulkan/tr_shade_calc.o \
-  $(B)/renderer_vulkan/tr_shader.o \
-  $(B)/renderer_vulkan/tr_shadows.o \
-  $(B)/renderer_vulkan/tr_sky.o \
-  $(B)/renderer_vulkan/tr_surface.o \
-  $(B)/renderer_vulkan/tr_flares.o \
-  $(B)/renderer_vulkan/tr_fog.o \
-  $(B)/renderer_vulkan/tr_world.o \
-  $(B)/renderer_vulkan/vk_instance.o \
-  $(B)/renderer_vulkan/vk_init.o \
-  $(B)/renderer_vulkan/vk_cmd.o \
-  $(B)/renderer_vulkan/tr_images.o \
-  $(B)/renderer_vulkan/vk_texture.o \
-  $(B)/renderer_vulkan/vk_image_sampler2.o \
-  $(B)/renderer_vulkan/tr_pipelines.o \
-  $(B)/renderer_vulkan/vk_pipeline.o \
-  $(B)/renderer_vulkan/vk_frame.o \
-  $(B)/renderer_vulkan/vk_swapchain.o \
-  $(B)/renderer_vulkan/tr_screenshot.o \
-  $(B)/renderer_vulkan/vk_screenshot.o \
-  $(B)/renderer_vulkan/vk_info.o \
-  $(B)/renderer_vulkan/tr_shade_geometry.o \
-  $(B)/renderer_vulkan/vk_geometry.o \
-  $(B)/renderer_vulkan/vk_depth_attachment.o \
-  \
-  $(B)/renderer_vulkan/vk_shaders.o \
-  $(B)/renderer_vulkan/multi_texture_clipping_plane_vert.o \
-  $(B)/renderer_vulkan/multi_texture_frag.o \
-  $(B)/renderer_vulkan/multi_texture_vert.o \
-  $(B)/renderer_vulkan/single_texture_clipping_plane_vert.o \
-  $(B)/renderer_vulkan/single_texture_frag.o \
-  $(B)/renderer_vulkan/single_texture_vert.o \
-  \
-  $(B)/renderer_vulkan/R_StretchRaw.o \
-  $(B)/renderer_vulkan/R_DebugGraphics.o \
-  $(B)/renderer_vulkan/RB_ShowImages.o \
-  $(B)/renderer_vulkan/RB_DrawNormals.o \
-  $(B)/renderer_vulkan/RB_DrawTris.o \
-  $(B)/renderer_vulkan/RB_SurfaceAnim.o \
-  $(B)/renderer_vulkan/tr_backend.o \
-  $(B)/renderer_vulkan/tr_Cull.o \
-  $(B)/renderer_vulkan/glConfig.o \
-  $(B)/renderer_vulkan/R_Parser.o \
-  $(B)/renderer_vulkan/R_PortalPlane.o \
-  $(B)/renderer_vulkan/R_PrintMat.o \
-  \
-  $(B)/renderer_vulkan/R_LoadImage2.o \
-  $(B)/renderer_vulkan/R_LoadImage.o \
-  $(B)/renderer_vulkan/R_ImageJPG.o \
-  $(B)/renderer_vulkan/R_ImageTGA.o \
-  $(B)/renderer_vulkan/R_ImagePNG.o \
-  $(B)/renderer_vulkan/R_ImageBMP.o \
-  $(B)/renderer_vulkan/R_ImagePCX.o \
-  \
-  $(B)/renderer_vulkan/ref_import.o \
-  $(B)/renderer_vulkan/render_export.o \
-  \
-  $(B)/renderer_vulkan/sdl_window.o \
-  $(B)/renderer_vulkan/vk_surface_sdl.o
+# The renderer code that all graphics APIs share
+Q3GAPIOBJ = \
+  $(B)/renderer_gapi/matrix_multiplication.o \
+  $(B)/renderer_gapi/tr_globals.o \
+  $(B)/renderer_gapi/tr_cvar.o \
+  $(B)/renderer_gapi/tr_animation.o \
+  $(B)/renderer_gapi/tr_bsp.o \
+  $(B)/renderer_gapi/tr_cmds.o \
+  $(B)/renderer_gapi/tr_curve.o \
+  $(B)/renderer_gapi/tr_fonts.o \
+  $(B)/renderer_gapi/tr_image.o \
+  $(B)/renderer_gapi/R_FindShader.o \
+  $(B)/renderer_gapi/R_ListShader.o \
+  $(B)/renderer_gapi/R_ImageProcess.o \
+  $(B)/renderer_gapi/tr_init.o \
+  $(B)/renderer_gapi/tr_light.o \
+  $(B)/renderer_gapi/tr_main.o \
+  $(B)/renderer_gapi/tr_marks.o \
+  $(B)/renderer_gapi/tr_mesh.o \
+  $(B)/renderer_gapi/tr_model.o \
+  $(B)/renderer_gapi/tr_model_iqm.o \
+  $(B)/renderer_gapi/RE_RegisterModel.o \
+  $(B)/renderer_gapi/R_ModelBounds.o \
+  $(B)/renderer_gapi/R_LoadMD3.o \
+  $(B)/renderer_gapi/R_LoadMDR.o \
+  $(B)/renderer_gapi/R_LerpTag.o \
+  $(B)/renderer_gapi/tr_noise.o \
+  $(B)/renderer_gapi/tr_scene.o \
+  $(B)/renderer_gapi/tr_shade.o \
+  $(B)/renderer_gapi/tr_shade_calc.o \
+  $(B)/renderer_gapi/tr_shader.o \
+  $(B)/renderer_gapi/tr_shadows.o \
+  $(B)/renderer_gapi/tr_sky.o \
+  $(B)/renderer_gapi/tr_surface.o \
+  $(B)/renderer_gapi/tr_flares.o \
+  $(B)/renderer_gapi/tr_fog.o \
+  $(B)/renderer_gapi/tr_world.o \
+  $(B)/renderer_gapi/tr_images.o \
+  $(B)/renderer_gapi/tr_pipelines.o \
+  $(B)/renderer_gapi/tr_screenshot.o \
+  $(B)/renderer_gapi/tr_shade_geometry.o \
+  $(B)/renderer_gapi/R_StretchRaw.o \
+  $(B)/renderer_gapi/R_DebugGraphics.o \
+  $(B)/renderer_gapi/RB_ShowImages.o \
+  $(B)/renderer_gapi/RB_DrawNormals.o \
+  $(B)/renderer_gapi/RB_DrawTris.o \
+  $(B)/renderer_gapi/RB_SurfaceAnim.o \
+  $(B)/renderer_gapi/tr_backend.o \
+  $(B)/renderer_gapi/tr_Cull.o \
+  $(B)/renderer_gapi/glConfig.o \
+  $(B)/renderer_gapi/R_Parser.o \
+  $(B)/renderer_gapi/R_PortalPlane.o \
+  $(B)/renderer_gapi/R_PrintMat.o \
+  $(B)/renderer_gapi/R_LoadImage2.o \
+  $(B)/renderer_gapi/R_LoadImage.o \
+  $(B)/renderer_gapi/R_ImageJPG.o \
+  $(B)/renderer_gapi/R_ImageTGA.o \
+  $(B)/renderer_gapi/R_ImagePNG.o \
+  $(B)/renderer_gapi/R_ImageBMP.o \
+  $(B)/renderer_gapi/R_ImagePCX.o \
+  $(B)/renderer_gapi/ref_import.o \
+  $(B)/renderer_gapi/render_export.o \
+  $(B)/renderer_gapi/sdl_window.o
+
+# The Vulkan renderer: the shared code and graphics_api/Vulkan
+Q3VKOBJ = $(Q3GAPIOBJ) \
+  $(B)/renderer_gapi/Vulkan/vk_instance.o \
+  $(B)/renderer_gapi/Vulkan/vk_init.o \
+  $(B)/renderer_gapi/Vulkan/vk_cmd.o \
+  $(B)/renderer_gapi/Vulkan/vk_texture.o \
+  $(B)/renderer_gapi/Vulkan/vk_image_sampler2.o \
+  $(B)/renderer_gapi/Vulkan/vk_pipeline.o \
+  $(B)/renderer_gapi/Vulkan/vk_frame.o \
+  $(B)/renderer_gapi/Vulkan/vk_swapchain.o \
+  $(B)/renderer_gapi/Vulkan/vk_screenshot.o \
+  $(B)/renderer_gapi/Vulkan/vk_info.o \
+  $(B)/renderer_gapi/Vulkan/vk_geometry.o \
+  $(B)/renderer_gapi/Vulkan/vk_depth_attachment.o \
+  $(B)/renderer_gapi/Vulkan/vk_shaders.o \
+  $(B)/renderer_gapi/Vulkan/multi_texture_clipping_plane_vert.o \
+  $(B)/renderer_gapi/Vulkan/multi_texture_frag.o \
+  $(B)/renderer_gapi/Vulkan/multi_texture_vert.o \
+  $(B)/renderer_gapi/Vulkan/single_texture_clipping_plane_vert.o \
+  $(B)/renderer_gapi/Vulkan/single_texture_frag.o \
+  $(B)/renderer_gapi/Vulkan/single_texture_vert.o \
+  $(B)/renderer_gapi/Vulkan/vk_surface_sdl.o
 
 ######################################################
 
@@ -2876,23 +2892,14 @@ $(B)/renderergl2/%.o: $(RGL2DIR)/%.c
 
 ############### VULKAN ######################
 
-$(B)/renderer_vulkan/%.o: $(CMDIR)/%.c
-	$(DO_REF_CC)
+$(B)/renderer_gapi/%.o: $(RGAPIDIR)/%.c
+	$(DO_GAPI_CC)
 
-$(B)/renderer_vulkan/%.o: $(SDLDIR)/%.c
-	$(DO_REF_CC)
+$(B)/renderer_gapi/Vulkan/%.o: $(RVULKANDIR)/%.c
+	$(DO_VULKAN_CC)
 
-$(B)/renderer_vulkan/%.o: $(JPDIR)/%.c
-	$(DO_REF_CC)
-
-#$(B)/renderer_vulkan/%.o: $(RCOMMONDIR)/%.c
-#	$(DO_REF_CC)
-
-$(B)/renderer_vulkan/%.o: $(RVULKANDIR)/%.c
-	$(DO_REF_CC)
-
-$(B)/renderer_vulkan/%.o: $(MOUNT_DIR)/renderer_vulkan/shaders/Compiled/%.c
-	$(DO_REF_CC)
+$(B)/renderer_gapi/Vulkan/%.o: $(RVULKANDIR)/shaders/%.c
+	$(DO_VULKAN_CC)
 
 ##############################################
 
