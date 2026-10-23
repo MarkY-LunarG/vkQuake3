@@ -22,7 +22,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "tr_globals.h"
 #include "vk_image.h"
 #include "vk_pipelines.h"
-#include "vk_shaders.h"
+#include "tr_state_bits.h"
 #include "tr_cvar.h"
 #include "tr_shader.h"
 #include "R_Parser.h"
