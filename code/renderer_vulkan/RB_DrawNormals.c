@@ -1,5 +1,5 @@
 #include "tr_backend.h"
-#include "vk_shade_geometry.h"
+#include "tr_shade_geometry.h"
 #include "tr_globals.h"
 #include "vk_pipelines.h"
 
@@ -33,10 +33,10 @@ void RB_DrawNormals (shaderCommands_t* pTess, int numVertexes )
         pTess->numVertexes = 2 * count;
         pTess->numIndexes = 0;
 
-        vk_UploadXYZI(pTess->xyz, pTess->numVertexes, NULL, 0);
+        gapi_uploadPositionsAndIndexes(pTess->xyz, pTess->numVertexes, NULL, 0);
         
         updateMVP(backEnd.viewParms.isPortal, backEnd.projection2D, getptr_modelview_matrix());
-        vk_shade_geometry(g_stdPipelines.normals_debug_pipeline, qfalse, DEPTH_RANGE_ZERO, qfalse);
+        RB_ShadeGeometry(g_stdPipelines.normals_debug_pipeline, qfalse, GAPI_DEPTH_ZERO, qfalse);
 
         i += count;
     }

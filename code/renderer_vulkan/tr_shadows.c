@@ -20,7 +20,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 ===========================================================================
 */
 #include "tr_globals.h"
-#include "vk_shade_geometry.h"
+#include "tr_shade_geometry.h"
 #include "vk_instance.h"
 #include "vk_pipelines.h"
 #include "vk_image.h"
@@ -107,7 +107,7 @@ static void R_ExtrudeShadowEdges( void ) {
 
 
 // VULKAN
-static void vk_renderShadowEdges(const gapi_pipeline_t* pipeline)
+static void RB_RenderShadowEdges(const gapi_pipeline_t* pipeline)
 {
 
 	int i = 0;
@@ -138,10 +138,10 @@ static void vk_renderShadowEdges(const gapi_pipeline_t* pipeline)
 			tess.svars.colors[k][3] = 255;
 		}
         
-        vk_UploadXYZI(tess.xyz, tess.numVertexes, tess.indexes, tess.numIndexes);
+        gapi_uploadPositionsAndIndexes(tess.xyz, tess.numVertexes, tess.indexes, tess.numIndexes);
         updateMVP(backEnd.viewParms.isPortal, backEnd.projection2D, getptr_modelview_matrix());
 
-        vk_shade_geometry(pipeline, qfalse, DEPTH_RANGE_NORMAL, qtrue);
+        RB_ShadeGeometry(pipeline, qfalse, GAPI_DEPTH_NORMAL, qtrue);
 
 
 		i += count;
@@ -216,15 +216,15 @@ void RB_ShadowTessEnd( void ) {
 
 	// draw the silhouette edges
 
-	updateCurDescriptor( tr.whiteImage->tex, 0);
+	gapi_bindTexture( 0, tr.whiteImage->tex );
 
 	R_ExtrudeShadowEdges();
 
 	// mirrors have the culling order reversed
 
 	// VULKAN
-	vk_renderShadowEdges(g_stdPipelines.shadow_volume_pipelines[0][backEnd.viewParms.isMirror]);
-	vk_renderShadowEdges(g_stdPipelines.shadow_volume_pipelines[1][backEnd.viewParms.isMirror]);
+	RB_RenderShadowEdges(g_stdPipelines.shadow_volume_pipelines[0][backEnd.viewParms.isMirror]);
+	RB_RenderShadowEdges(g_stdPipelines.shadow_volume_pipelines[1][backEnd.viewParms.isMirror]);
 
 }
 
@@ -245,7 +245,7 @@ void RB_ShadowFinish( void )
 		return;
 	}
 
-	updateCurDescriptor( tr.whiteImage->tex, 0);
+	gapi_bindTexture( 0, tr.whiteImage->tex );
 
 	// VULKAN
 
@@ -279,9 +279,9 @@ void RB_ShadowFinish( void )
         0, 0, 1, 0,
         0, 0, 0, 1};
      
-    vk_UploadXYZI(tess.xyz, tess.numVertexes, tess.indexes, tess.numIndexes);
+    gapi_uploadPositionsAndIndexes(tess.xyz, tess.numVertexes, tess.indexes, tess.numIndexes);
     updateMVP(backEnd.viewParms.isPortal, backEnd.projection2D, tmp);
-    vk_shade_geometry(g_stdPipelines.shadow_finish_pipeline, qfalse, DEPTH_RANGE_NORMAL, qtrue);
+    RB_ShadeGeometry(g_stdPipelines.shadow_finish_pipeline, qfalse, GAPI_DEPTH_NORMAL, qtrue);
 
     tess.numIndexes = 0;
     tess.numVertexes = 0;

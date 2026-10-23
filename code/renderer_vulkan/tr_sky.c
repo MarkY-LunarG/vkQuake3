@@ -21,7 +21,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 // tr_sky.c
 #include "tr_globals.h"
-#include "vk_shade_geometry.h"
+#include "tr_shade_geometry.h"
 
 #include "vk_instance.h"
 #include "vk_pipelines.h"
@@ -652,7 +652,7 @@ void RB_StageIteratorSky( void )
 
             // VULKAN: draw skybox side
 
-            updateCurDescriptor(tess.shader->sky.outerbox[sky_texorder[i]]->tex, 0);
+            gapi_bindTexture( 0, tess.shader->sky.outerbox[sky_texorder[i]]->tex );
 
             tess.numVertexes = 0;
             tess.numIndexes = 0;
@@ -705,9 +705,9 @@ void RB_StageIteratorSky( void )
             MatrixMultiply4x4_SSE(skybox_translate, getptr_modelview_matrix(), tmp);
             updateMVP(backEnd.viewParms.isPortal, backEnd.projection2D, tmp);
         }
-            vk_UploadXYZI(tess.xyz, tess.numVertexes, tess.indexes, tess.numIndexes);
+            gapi_uploadPositionsAndIndexes(tess.xyz, tess.numVertexes, tess.indexes, tess.numIndexes);
 
-            vk_shade_geometry(g_stdPipelines.skybox_pipeline, qfalse, r_showsky->integer ? DEPTH_RANGE_ZERO : DEPTH_RANGE_ONE, qtrue);
+            RB_ShadeGeometry(g_stdPipelines.skybox_pipeline, qfalse, r_showsky->integer ? GAPI_DEPTH_ZERO : GAPI_DEPTH_ONE, qtrue);
 
         }
         

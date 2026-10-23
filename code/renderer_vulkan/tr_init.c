@@ -29,7 +29,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "vk_init.h"
 
 #include "vk_screenshot.h"
-#include "vk_shade_geometry.h"
+#include "tr_shade_geometry.h"
+#include "vk_geometry.h"
 #include "vk_pipelines.h"
 #include "vk_image.h"
 
@@ -177,6 +178,7 @@ void RE_Shutdown( qboolean destroyWindow )
  
 
     vk_resetGeometryBuffer();
+    reset_modelview_matrix();
 
 	if ( tr.registered )
     {	

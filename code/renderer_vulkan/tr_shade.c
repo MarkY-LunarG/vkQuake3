@@ -22,7 +22,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // tr_shade.c
 
 #include "tr_globals.h"
-#include "vk_shade_geometry.h"
+#include "tr_shade_geometry.h"
 
 #include "ref_import.h"
 #include "tr_backend.h"

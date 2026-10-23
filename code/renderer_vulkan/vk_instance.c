@@ -6,7 +6,7 @@
 #include "tr_globals.h"
 #include "vk_image.h"
 #include "vk_instance.h"
-#include "vk_shade_geometry.h"
+#include "vk_geometry.h"
 #include "vk_pipelines.h"
 #include "vk_frame.h"
 #include "vk_shaders.h"

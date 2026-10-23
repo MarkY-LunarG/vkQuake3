@@ -28,7 +28,8 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "vk_instance.h"
 #include "vk_frame.h"
 #include "vk_screenshot.h"
-#include "vk_shade_geometry.h"
+#include "tr_shade_geometry.h"
+#include "vk_geometry.h"
 #include "RB_ShowImages.h"
 #include "R_PrintMat.h"
 #include "tr_light.h"
@@ -224,8 +225,9 @@ static void RB_RenderDrawSurfList( drawSurf_t* drawSurfs, int numDrawSurfs )
 	// ensures that depth writes are enabled for the depth clear
     
 
-	// VULKAN
-    vk_clearDepthStencilAttachments();
+	gapi_rect_t clearRect;
+	RB_GetDrawRect(&clearRect);
+	gapi_clearDepthStencil(&clearRect, r_shadows->integer == 2 ? qtrue : qfalse);
 
 	if ( backEnd.refdef.rd.rdflags & RDF_HYPERSPACE )
 	{
@@ -235,7 +237,7 @@ static void RB_RenderDrawSurfList( drawSurf_t* drawSurfs, int numDrawSurfs )
         const float color[4] = { c, c, c, 1 };
 
         // so short, do we really need this?
-	    vk_clearColorAttachments(color);
+	    gapi_clearColor(&clearRect, color);
 
 	    backEnd.isHyperspace = qtrue;
 	}
@@ -539,6 +541,7 @@ void R_IssueRenderCommands( qboolean runPerformanceCounters )
                 // data = RB_DrawBuffer( data ); 
                 // const drawBufferCommand_t * const cmd = (const drawBufferCommand_t *)data;
                 vk_resetGeometryBuffer();
+                reset_modelview_matrix();
                 
                 // VULKAN
                 vk_begin_frame();

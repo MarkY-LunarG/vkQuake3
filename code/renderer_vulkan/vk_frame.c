@@ -1,9 +1,10 @@
 #include "tr_local.h"
 #include "tr_cvar.h"
 #include "vk_instance.h"
-#include "vk_shade_geometry.h"
+#include "vk_geometry.h"
 #include "vk_frame.h"
 #include "vk_swapchain.h"
+#include "glConfig.h"
 
 //  Synchronization of access to resources is primarily the responsibility
 //  of the application in Vulkan. The order of execution of commands with
@@ -558,7 +559,14 @@ void vk_begin_frame(void)
 	renderPass_beginInfo.renderPass = vk.render_pass;
 	renderPass_beginInfo.framebuffer = vk.framebuffers[vk.idx_swapchain_image];
 
-    renderPass_beginInfo.renderArea = get_scissor_rect();
+    // The render area covers the whole framebuffer, because the draws and
+    // the clears in the pass can use any part of it.
+    int width, height;
+    R_GetWinResolution(&width, &height);
+    renderPass_beginInfo.renderArea.offset.x = 0;
+    renderPass_beginInfo.renderArea.offset.y = 0;
+    renderPass_beginInfo.renderArea.extent.width = width;
+    renderPass_beginInfo.renderArea.extent.height = height;
 
     renderPass_beginInfo.clearValueCount = 2;
 	renderPass_beginInfo.pClearValues = clear_values;

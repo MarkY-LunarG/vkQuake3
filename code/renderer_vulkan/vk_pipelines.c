@@ -692,6 +692,7 @@ static gapi_pipeline_t* vk_find_pipeline(struct Vk_Pipeline_Def* def)
 	//s_pipeline_defs[s_numPipelines].pipeline = pipeline;
 	gapi_pipeline_t* handle = &s_stagePipelines[s_numPipelines];
 	handle->pipeline = def->pipeline;
+	handle->polygonOffset = def->polygon_offset ? qtrue : qfalse;
 
     if (++s_numPipelines >= MAX_VK_PIPELINES)
     {
@@ -710,6 +711,7 @@ static void vk_create_std_pipeline(const struct Vk_Pipeline_Def* def, gapi_pipel
 
     gapi_pipeline_t* handle = &s_stdPipelines[s_numStdPipelines++];
     vk_create_pipeline(def, &handle->pipeline);
+    handle->polygonOffset = def->polygon_offset ? qtrue : qfalse;
     *pHandle = handle;
 }
 

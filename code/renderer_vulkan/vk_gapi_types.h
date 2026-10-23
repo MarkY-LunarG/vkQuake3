@@ -21,6 +21,8 @@ struct gapi_texture_s {
 
 struct gapi_pipeline_s {
 	VkPipeline pipeline;
+	// The pipeline has dynamic depth bias (Q3 shader polygonOffset).
+	qboolean polygonOffset;
 };
 
 #endif

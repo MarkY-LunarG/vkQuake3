@@ -1,5 +1,5 @@
 #include "tr_globals.h"
-#include "vk_shade_geometry.h"
+#include "tr_shade_geometry.h"
 #include "vk_instance.h"
 #include "vk_image.h"
 #include "vk_pipelines.h"
@@ -64,11 +64,11 @@ void R_DebugPolygon( int color, int numPoints, float *points )
 		tess.numIndexes += 3;
 	}
     
-    vk_UploadXYZI(tess.xyz, tess.numVertexes, tess.indexes, tess.numIndexes);
+    gapi_uploadPositionsAndIndexes(tess.xyz, tess.numVertexes, tess.indexes, tess.numIndexes);
 
     updateMVP(backEnd.viewParms.isPortal, backEnd.projection2D, getptr_modelview_matrix());
 
-    vk_shade_geometry(g_stdPipelines.surface_debug_pipeline_solid, qfalse, DEPTH_RANGE_NORMAL, qtrue);
+    RB_ShadeGeometry(g_stdPipelines.surface_debug_pipeline_solid, qfalse, GAPI_DEPTH_NORMAL, qtrue);
 
 
 	// Outline.
@@ -82,10 +82,10 @@ void R_DebugPolygon( int color, int numPoints, float *points )
 	tess.numVertexes = numPoints * 2;
 	tess.numIndexes = 0;
 
-    vk_UploadXYZI(tess.xyz, tess.numVertexes, tess.indexes, 0);
+    gapi_uploadPositionsAndIndexes(tess.xyz, tess.numVertexes, tess.indexes, 0);
     
     updateMVP(backEnd.viewParms.isPortal, backEnd.projection2D, getptr_modelview_matrix());
-    vk_shade_geometry(g_stdPipelines.surface_debug_pipeline_outline, qfalse, DEPTH_RANGE_ZERO, qfalse);
+    RB_ShadeGeometry(g_stdPipelines.surface_debug_pipeline_outline, qfalse, GAPI_DEPTH_ZERO, qfalse);
 	
     tess.numVertexes = 0;
 }
@@ -104,6 +104,6 @@ void R_DebugGraphics( void )
 		R_IssueRenderCommands( qfalse );
 	}
 
-	updateCurDescriptor( tr.whiteImage->tex, 0);
+	gapi_bindTexture( 0, tr.whiteImage->tex );
 	ri.CM_DrawDebugSurface( R_DebugPolygon );
 }

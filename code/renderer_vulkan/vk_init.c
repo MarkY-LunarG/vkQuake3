@@ -4,7 +4,7 @@
 #include "vk_cmd.h"
 #include "vk_depth_attachment.h"
 #include "vk_pipelines.h"
-#include "vk_shade_geometry.h"
+#include "vk_geometry.h"
 #include "vk_shaders.h"
 #include "glConfig.h"
 #include "tr_backend.h"
@@ -79,6 +79,12 @@ void vk_initialize(void)
 VkBool32 isVKinitialied(void)
 {
     return vk.isInitialized;
+}
+
+
+void gapi_getCaps(gapi_caps_t* caps)
+{
+    caps->fillModeLine = vk.features.fillModeNonSolid ? qtrue : qfalse;
 }
 
 // Shutdown vulkan subsystem by releasing resources acquired by Vk_Instance.

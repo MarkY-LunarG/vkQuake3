@@ -1,5 +1,5 @@
 #include "tr_backend.h"
-#include "vk_shade_geometry.h"
+#include "tr_shade_geometry.h"
 #include "vk_pipelines.h"
 #include "glConfig.h"
 
@@ -20,7 +20,9 @@ void RB_ShowImages(image_t ** const pImg, unsigned int N)
     backEnd.projection2D = qtrue;
 
 	const float black[4] = {0, 0, 0, 1};
-	vk_clearColorAttachments(black);
+	gapi_rect_t clearRect;
+	RB_GetDrawRect(&clearRect);
+	gapi_clearColor(&clearRect, black);
    
     int width;
     int height;
@@ -71,14 +73,14 @@ void RB_ShowImages(image_t ** const pImg, unsigned int N)
 
 		memset( tess.svars.colors, 255, tess.numVertexes * 4 );
         
-        updateCurDescriptor( pImg[i]->tex, 0);
+        gapi_bindTexture( 0, pImg[i]->tex );
 
-        vk_UploadXYZI(tess.xyz, 4, tess.indexes, 6);
+        gapi_uploadPositionsAndIndexes(tess.xyz, 4, tess.indexes, 6);
 
         // updateMVP(backEnd.viewParms.isPortal, backEnd.projection2D, getptr_modelview_matrix());
         updateMVP( 0 , 1, getptr_modelview_matrix());
 
-        vk_shade_geometry(g_stdPipelines.images_debug_pipeline, qfalse, DEPTH_RANGE_NORMAL, qtrue);
+        RB_ShadeGeometry(g_stdPipelines.images_debug_pipeline, qfalse, GAPI_DEPTH_NORMAL, qtrue);
 	}
 	tess.numIndexes = 0;
 	tess.numVertexes = 0;

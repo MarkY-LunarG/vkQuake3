@@ -1175,7 +1175,7 @@ ifeq ($(BUILD_STANDALONE),1)
 endif
 
 ifeq ($(GENERATE_DEPENDENCIES),1)
-  DEPEND_CFLAGS = -MMD
+  DEPEND_CFLAGS = -MMD -MP
 else
   DEPEND_CFLAGS =
 endif
@@ -1827,7 +1827,8 @@ Q3VKOBJ = \
   $(B)/renderer_vulkan/vk_frame.o \
   $(B)/renderer_vulkan/vk_swapchain.o \
   $(B)/renderer_vulkan/vk_screenshot.o \
-  $(B)/renderer_vulkan/vk_shade_geometry.o \
+  $(B)/renderer_vulkan/tr_shade_geometry.o \
+  $(B)/renderer_vulkan/vk_geometry.o \
   $(B)/renderer_vulkan/vk_depth_attachment.o \
   \
   $(B)/renderer_vulkan/vk_shaders.o \
