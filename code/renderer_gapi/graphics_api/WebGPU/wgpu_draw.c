@@ -224,7 +224,19 @@ void gapi_readPixels(unsigned char* rgba, uint32_t width, uint32_t height)
 {
     memset(rgba, 0, (size_t)width * height * 4);
 
-    if (!wg.initialized || !s_lastFrameValid)
+    if (!wg.initialized)
+        return;
+
+    if (!(wg.surfaceUsage & WGPUTextureUsage_CopySrc))
+    {
+        static qboolean warned = qfalse;
+        if (!warned)
+            ri.Printf(PRINT_WARNING, "WebGPU: the surface cannot be copied, the pixels are black\n");
+        warned = qtrue;
+        return;
+    }
+
+    if (!s_lastFrameValid)
         return;
 
     width = MIN(width, s_lastFrameWidth);
