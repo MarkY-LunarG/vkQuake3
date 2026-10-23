@@ -5,8 +5,14 @@
 
 
 
-void vk_createFrameBuffers(uint32_t w, uint32_t h);
+void vk_createRenderPass(void);
+void vk_destroyRenderPass(void);
+// The framebuffers have the size of the swapchain (vk.swapchain_extent).
+void vk_createFrameBuffers(void);
+// Destroy the framebuffers and the swapchain image views.
 void vk_destroyFrameBuffers(void);
+// qfalse when gapi_beginFrame skipped the frame.
+qboolean vk_frameActive(void);
 
 void vk_createSwapChain(VkDevice device, VkSurfaceKHR surface, VkSurfaceFormatKHR surface_format);
 

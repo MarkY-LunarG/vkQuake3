@@ -111,7 +111,7 @@ extern PFN_vkQueuePresentKHR							qvkQueuePresentKHR;
 
 
 // Initializes VK_Instance structure.
-void vk_getProcAddress(void);
+qboolean vk_getProcAddress(void);
 void vk_clearProcAddress(void);
 
 const char * cvtResToStr(VkResult result);
@@ -169,6 +169,7 @@ struct Vk_Instance {
 	VkQueue queue;
 
 	VkSwapchainKHR swapchain;
+	VkExtent2D swapchain_extent;
 	uint32_t swapchain_image_count ;
 	VkImage swapchain_images_array[MAX_SWAPCHAIN_IMAGES];
 	VkImageView swapchain_image_views[MAX_SWAPCHAIN_IMAGES];

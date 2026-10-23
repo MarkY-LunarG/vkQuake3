@@ -1,4 +1,5 @@
 #include "vk_geometry.h"
+#include "vk_frame.h"
 #include "vk_instance.h"
 #include "vk_texture.h"
 #include "tr_cvar.h"
@@ -58,13 +59,16 @@ VkBuffer vk_getIndexBuffer(void)
 }
 
 
+static VkRect2D vk_toRect2D(const gapi_rect_t* rect);
+
 static void vk_setViewportScissor(const gapi_rect_t* rect, gapi_depthRange_t dR,
         VkViewport* const vp, VkRect2D* const pRect)
 {
-    pRect->offset.x = vp->x = rect->x;
-    pRect->offset.y = vp->y = rect->y;
-    pRect->extent.width = vp->width = rect->width;
-    pRect->extent.height = vp->height = rect->height;
+    vp->x = rect->x;
+    vp->y = rect->y;
+    vp->width = rect->width;
+    vp->height = rect->height;
+    *pRect = vk_toRect2D(rect);
 
     switch(dR)
     {
@@ -95,13 +99,20 @@ static void vk_setViewportScissor(const gapi_rect_t* rect, gapi_depthRange_t dR,
 }
 
 
+// The rectangle, clamped to the swapchain size. The draws and the clears
+// must stay in the render area. Normally the rectangle is already inside.
 static VkRect2D vk_toRect2D(const gapi_rect_t* rect)
 {
+    const int x0 = MAX(rect->x, 0);
+    const int y0 = MAX(rect->y, 0);
+    const int x1 = MIN(rect->x + rect->width, (int)vk.swapchain_extent.width);
+    const int y1 = MIN(rect->y + rect->height, (int)vk.swapchain_extent.height);
+
     VkRect2D r;
-    r.offset.x = rect->x;
-    r.offset.y = rect->y;
-    r.extent.width = rect->width;
-    r.extent.height = rect->height;
+    r.offset.x = x0;
+    r.offset.y = y0;
+    r.extent.width = (x1 > x0) ? (uint32_t)(x1 - x0) : 0;
+    r.extent.height = (y1 > y0) ? (uint32_t)(y1 - y0) : 0;
     return r;
 }
 
@@ -250,6 +261,10 @@ void gapi_bindTexture(uint32_t tmu, const gapi_texture_t* tex)
 
 void gapi_draw(const gapi_pipeline_t* pipeline, const gapi_draw_t* draw)
 {
+    // gapi_beginFrame skipped the frame: record no commands.
+    if (!vk_frameActive())
+        return;
+
     const qboolean multitexture = (draw->texCoords1 != NULL);
 
 	// configure vertex data stream
@@ -322,6 +337,10 @@ void gapi_draw(const gapi_pipeline_t* pipeline, const gapi_draw_t* draw)
 
 void gapi_setVertexConstants(const gapi_vertexConstants_t* constants)
 {
+    // gapi_beginFrame skipped the frame: record no commands.
+    if (!vk_frameActive())
+        return;
+
     // As described above in section Pipeline Layouts, the pipeline layout defines shader push constants
     // which are updated via Vulkan commands rather than via writes to memory or copy commands.
     // Push constants represent a high speed path to modify constant data in pipelines
@@ -371,6 +390,10 @@ void gapi_setVertexConstants(const gapi_vertexConstants_t* constants)
 void gapi_uploadPositionsAndIndexes(const vec4_t* pXYZ, uint32_t nVertex,
 		const uint32_t* pIdx, uint32_t nIndex)
 {
+	// gapi_beginFrame skipped the frame: record no commands.
+	if (!vk_frameActive())
+		return;
+
 	// xyz stream
 	{
         const VkDeviceSize xyz_offset = XYZ_OFFSET + shadingDat.xyz_elements * sizeof(vec4_t);
@@ -437,6 +460,10 @@ void vk_destroy_shading_data(void)
 
 void gapi_clearDepthStencil(const gapi_rect_t* rect, qboolean stencil)
 {
+    // gapi_beginFrame skipped the frame: record no commands.
+    if (!vk_frameActive())
+        return;
+
     if(shadingDat.s_depth_attachment_dirty)
     {
         VkClearAttachment attachments;
@@ -456,6 +483,9 @@ void gapi_clearDepthStencil(const gapi_rect_t* rect, qboolean stencil)
         clear_rect.layerCount = 1;
 
 
+        if (clear_rect.rect.extent.width == 0 || clear_rect.rect.extent.height == 0)
+            return;
+
         qvkCmdClearAttachments(vk.command_buffer, 1, &attachments, 1, &clear_rect);
     }
 }
@@ -465,6 +495,10 @@ void gapi_clearDepthStencil(const gapi_rect_t* rect, qboolean stencil)
 
 void gapi_clearColor(const gapi_rect_t* rect, const float color[4])
 {
+    // gapi_beginFrame skipped the frame: record no commands.
+    if (!vk_frameActive())
+        return;
+
 
     // ri.Printf(PRINT_ALL, "vk_clearColorAttachments\n");
 
@@ -515,6 +549,9 @@ void gapi_clearColor(const gapi_rect_t* rect, const float color[4])
 	clear_rect[0].rect = vk_toRect2D(rect);
 	clear_rect[0].baseArrayLayer = 0;
 	clear_rect[0].layerCount = 1;
+
+	if (clear_rect[0].rect.extent.width == 0 || clear_rect[0].rect.extent.height == 0)
+		return;
 
 	qvkCmdClearAttachments(vk.command_buffer, 1, attachments, 1, clear_rect);
 

@@ -82,26 +82,44 @@ void vk_getInstanceProcAddrImpl(void)
 }
 
 
-void vk_getInstanceExtensionsImpl(uint32_t* pCount, const char** ppNames)
+qboolean vk_getInstanceExtensionsImpl(uint32_t* pCount, const char** ppNames)
 {
     unsigned int count = *pCount;
 
     if (!SDL_Vulkan_GetInstanceExtensions(window_sdl, &count, ppNames))
     {
-        ri.Error(ERR_FATAL, "SDL_Vulkan_GetInstanceExtensions(): %s\n", SDL_GetError());
+        ri.Printf(PRINT_WARNING, "SDL_Vulkan_GetInstanceExtensions(): %s\n", SDL_GetError());
+        return qfalse;
     }
 
     *pCount = count;
+    return qtrue;
 }
 
 
-void vk_createSurfaceImpl(void)
+qboolean vk_debugFailInitImpl(void)
+{
+    const cvar_t* fail = ri.Cvar_Get("r_debugFailGapiInit", "", CVAR_TEMP);
+    const char* driver = SDL_GetCurrentVideoDriver();
+
+    if (fail->string[0] && driver && !Q_stricmp(fail->string, driver))
+    {
+        ri.Printf(PRINT_WARNING, "r_debugFailGapiInit: fail on the %s video driver\n", driver);
+        return qtrue;
+    }
+    return qfalse;
+}
+
+
+qboolean vk_createSurfaceImpl(void)
 {
     ri.Printf(PRINT_ALL, " Create Surface: vk.surface.\n");
 
     if(!SDL_Vulkan_CreateSurface(window_sdl, vk.instance, &vk.surface))
     {
         vk.surface = VK_NULL_HANDLE;
-        ri.Error(ERR_FATAL, "SDL_Vulkan_CreateSurface(): %s\n", SDL_GetError());
+        ri.Printf(PRINT_WARNING, "SDL_Vulkan_CreateSurface(): %s\n", SDL_GetError());
+        return qfalse;
     }
+    return qtrue;
 }

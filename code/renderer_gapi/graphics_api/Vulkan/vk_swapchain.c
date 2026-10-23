@@ -3,6 +3,9 @@
 #include "VKimpl.h"
 #include "vk_instance.h"
 #include "glConfig.h"
+#include "vk_swapchain.h"
+#include "vk_frame.h"
+#include "vk_depth_attachment.h"
 
 
 /*
@@ -33,19 +36,127 @@ vkAcquireNextImageKHR.
 // 3) Available presentation modes
 
 
-void vk_recreateSwapChain(void)
+// r_swapInterval: 0 is no vertical sync, 1 is vertical sync, -1 is adaptive.
+static int s_swapInterval = 0;
+
+// The swapchain must be made again before the next frame.
+static qboolean s_rebuild = qfalse;
+
+// The surface is lost and must be made again before the next frame.
+static qboolean s_surfaceLost = qfalse;
+
+
+void gapi_setSwapInterval(int interval)
 {
+    if (interval == s_swapInterval)
+        return;
 
-    ri.Printf( PRINT_ALL, " Recreate swap chain \n");
+    s_swapInterval = interval;
+    if (vk.swapchain != VK_NULL_HANDLE)
+        s_rebuild = qtrue;
+}
 
-    if( r_fullscreen->integer )
+
+void vk_requestSwapchainRebuild(void)
+{
+    s_rebuild = qtrue;
+}
+
+
+void vk_requestSurfaceRecreate(void)
+{
+    s_surfaceLost = qtrue;
+}
+
+
+void vk_destroySwapchain(void)
+{
+    if (vk.swapchain != VK_NULL_HANDLE)
     {
-        ri.Cvar_Set( "r_fullscreen", "0" );
-        r_fullscreen->modified = qtrue;
+        qvkDestroySwapchainKHR(vk.device, vk.swapchain, NULL);
+        vk.swapchain = VK_NULL_HANDLE;
     }
-    
-    // hasty prevent crash.
-    ri.Cmd_ExecuteText (EXEC_NOW, "vid_restart\n");
+}
+
+
+// Make the swapchain, its image views, the depth image, and the framebuffers
+// again for the current surface. Textures and pipelines stay. Return qfalse
+// if the surface has a size of 0, for example a minimized window. Then the
+// frame is skipped, and the next frame tries again.
+static qboolean vk_rebuildSwapchain(void)
+{
+    qvkDeviceWaitIdle(vk.device);
+
+    VK_CHECK(qvkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk.physical_device, vk.surface, &vk.surface_caps));
+    if (vk.surface_caps.currentExtent.width == 0 || vk.surface_caps.currentExtent.height == 0)
+    {
+        s_rebuild = qtrue;
+        return qfalse;
+    }
+
+    ri.Printf(PRINT_ALL, " Rebuild the swapchain\n");
+
+    vk_destroyFrameBuffers();
+    vk_destroyDepthAttachment();
+    vk_createSwapChain(vk.device, vk.surface, vk.surface_format);
+    vk_createDepthAttachment(vk.swapchain_extent.width, vk.swapchain_extent.height);
+    vk_createFrameBuffers();
+
+    s_rebuild = qfalse;
+    return qtrue;
+}
+
+
+// Make the surface again after VK_ERROR_SURFACE_LOST_KHR. If that fails,
+// restart the renderer.
+static qboolean vk_recreateSurface(void)
+{
+    qvkDeviceWaitIdle(vk.device);
+
+    ri.Printf(PRINT_ALL, " The surface is lost. Make it again.\n");
+
+    vk_destroyFrameBuffers();
+    vk_destroyDepthAttachment();
+    vk_destroySwapchain();
+    qvkDestroySurfaceKHR(vk.instance, vk.surface, NULL);
+    vk.surface = VK_NULL_HANDLE;
+
+    VkBool32 presentation_supported = VK_FALSE;
+    if (vk_createSurfaceImpl())
+    {
+        VK_CHECK(qvkGetPhysicalDeviceSurfaceSupportKHR(
+                    vk.physical_device, vk.queue_family_index, vk.surface, &presentation_supported));
+    }
+
+    if (!presentation_supported)
+    {
+        ri.Printf(PRINT_WARNING, "Vulkan: cannot make the surface again, restart the renderer\n");
+        s_surfaceLost = qfalse;
+        ri.Cmd_ExecuteText(EXEC_APPEND, "vid_restart\n");
+        return qfalse;
+    }
+
+    s_surfaceLost = qfalse;
+    s_rebuild = qtrue;
+    return qtrue;
+}
+
+
+qboolean vk_prepareSwapchain(void)
+{
+    if (s_surfaceLost && !vk_recreateSurface())
+        return qfalse;
+
+    if (s_rebuild && !vk_rebuildSwapchain())
+        return qfalse;
+
+    return qtrue;
+}
+
+
+qboolean vk_rebuildSwapchainNow(void)
+{
+    return vk_rebuildSwapchain();
 }
 
 
@@ -96,6 +207,7 @@ void vk_createSwapChain(VkDevice device, VkSurfaceKHR surface, VkSurfaceFormatKH
 
         VkBool32 mailbox_supported = VK_FALSE;
         VkBool32 immediate_supported = VK_FALSE;
+        VkBool32 fifo_relaxed_supported = VK_FALSE;
 
         for ( i = 0; i < nPM; i++)
         {
@@ -114,6 +226,7 @@ void vk_createSwapChain(VkDevice device, VkSurfaceKHR surface, VkSurfaceFormatKH
                     break;
                 case VK_PRESENT_MODE_FIFO_RELAXED_KHR:
                     ri.Printf(PRINT_ALL, " VK_PRESENT_MODE_FIFO_RELAXED_KHR \n");
+                    fifo_relaxed_supported = VK_TRUE;
                     break;
                 default:
                     ri.Printf(PRINT_ALL, " This device do not support presentation %d\n", pPresentModes[i]);
@@ -124,7 +237,24 @@ void vk_createSwapChain(VkDevice device, VkSurfaceKHR surface, VkSurfaceFormatKH
         free(pPresentModes);
 
 
-        if (mailbox_supported)
+        if (s_swapInterval > 0)
+        {
+            // Vertical sync. VK_PRESENT_MODE_FIFO_KHR mode is guaranteed to be available.
+            present_mode = VK_PRESENT_MODE_FIFO_KHR;
+            image_count = MAX(2u, vk.surface_caps.minImageCount);
+
+            ri.Printf(PRINT_ALL, "\n r_swapInterval %d: VK_PRESENT_MODE_FIFO_KHR mode. \n", s_swapInterval);
+        }
+        else if (s_swapInterval < 0)
+        {
+            // Adaptive vertical sync: a late frame does not wait.
+            present_mode = fifo_relaxed_supported ? VK_PRESENT_MODE_FIFO_RELAXED_KHR : VK_PRESENT_MODE_FIFO_KHR;
+            image_count = MAX(2u, vk.surface_caps.minImageCount);
+
+            ri.Printf(PRINT_ALL, "\n r_swapInterval %d: %s mode. \n", s_swapInterval,
+                    fifo_relaxed_supported ? "VK_PRESENT_MODE_FIFO_RELAXED_KHR" : "VK_PRESENT_MODE_FIFO_KHR");
+        }
+        else if (mailbox_supported)
         {
             present_mode = VK_PRESENT_MODE_MAILBOX_KHR;
             image_count = MAX(3u, vk.surface_caps.minImageCount);
@@ -194,6 +324,7 @@ void vk_createSwapChain(VkDevice device, VkSurfaceKHR surface, VkSurfaceFormatKH
 
         ri.Printf(PRINT_ALL, " Surface capabilities, image_extent.width: %d, image_extent.height: %d\n",
                 image_extent.width, image_extent.height);
+        vk.swapchain_extent = image_extent;
 
 
         VkSwapchainCreateInfoKHR desc;
@@ -249,9 +380,13 @@ void vk_createSwapChain(VkDevice device, VkSurfaceKHR surface, VkSurfaceFormatKH
         // while your application is running, for example because the window was resized.
         // In that case the swap chain actually needs to be recreated from scratch and a
         // reference to the old one must be specified in this field.
-        desc.oldSwapchain = VK_NULL_HANDLE;
-
+        // A rebuild gives the old swapchain, so that the presentation engine
+        // can use its resources again. Then the old swapchain is destroyed.
+        VkSwapchainKHR old_swapchain = vk.swapchain;
+        desc.oldSwapchain = old_swapchain;
         VK_CHECK(qvkCreateSwapchainKHR(device, &desc, NULL, &vk.swapchain));
+        if (old_swapchain != VK_NULL_HANDLE)
+            qvkDestroySwapchainKHR(device, old_swapchain, NULL);
     }
     
     //

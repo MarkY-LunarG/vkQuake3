@@ -86,6 +86,7 @@ extern	cvar_t	*r_directedScale;
 extern	cvar_t	*r_debugLight;
 
 extern cvar_t* r_allowResize; // make window resizable
+extern cvar_t* r_swapInterval; // 0: no vertical sync, 1: vertical sync, -1: adaptive
 extern cvar_t* r_mode;
 extern cvar_t* r_fullscreen;
 extern cvar_t* r_displayRefresh;

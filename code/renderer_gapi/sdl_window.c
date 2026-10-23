@@ -25,6 +25,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 // that it needs (gapi_sdlWindowFlags), and makes its surface from the window.
 
 #include "sdl_window.h"
+#include "graphics_api/gapi.h"
 #include "ref_import.h"
 #include "tr_cvar.h"
 #include "icon_oa.h"
@@ -224,10 +225,90 @@ static int R_SetMode(int mode, qboolean fullscreen, uint32_t windowFlags)
 
 
 
+#ifndef SDL_HINT_VIDEODRIVER
+#define SDL_HINT_VIDEODRIVER "SDL_VIDEODRIVER"
+#endif
+
+#define MAX_VIDEO_DRIVERS 4
+
+/*
+ * Make the list of SDL video drivers to try. A NULL entry is the default
+ * driver of SDL. Return the number of drivers.
+ */
+static int R_GetVideoDrivers(const char* drivers[MAX_VIDEO_DRIVERS], qboolean* pSetHint)
+{
+	const cvar_t* r_sdlDriver = ri.Cvar_Get( "r_sdlDriver", "", CVAR_ARCHIVE | CVAR_LATCH );
+	const char* env = SDL_getenv( "SDL_VIDEODRIVER" );
+
+	*pSetHint = qfalse;
+
+	// The user selected a driver: use only that driver.
+	if ( env && env[0] )
+	{
+		drivers[0] = env;
+		return 1;
+	}
+	if ( r_sdlDriver->string[0] )
+	{
+		drivers[0] = r_sdlDriver->string;
+		*pSetHint = qtrue;
+		return 1;
+	}
+
+#if !defined(_WIN32) && !defined(__APPLE__) && !defined(__ANDROID__)
+	// Wayland first. If the graphics API cannot start there, use X11.
+	drivers[0] = "wayland";
+	drivers[1] = "x11";
+	*pSetHint = qtrue;
+	return 2;
+#else
+	drivers[0] = NULL;
+	return 1;
+#endif
+}
+
+
+/*
+ * Start the SDL video subsystem with a driver, and create the window.
+ * Return qfalse if the driver or the window is not available.
+ */
+static qboolean R_OpenWindow(const char* driver, qboolean setHint, uint32_t windowFlags)
+{
+	if ( setHint && driver )
+	{
+		SDL_SetHint( SDL_HINT_VIDEODRIVER, driver );
+	}
+
+	if ( SDL_InitSubSystem( SDL_INIT_VIDEO ) != 0 )
+	{
+		ri.Printf(PRINT_ALL, " SDL_Init( SDL_INIT_VIDEO ) FAILED (%s)\n", SDL_GetError());
+		return qfalse;
+	}
+	ri.Printf(PRINT_ALL, " SDL using driver \"%s\"\n", SDL_GetCurrentVideoDriver( ));
+
+	if( 0 == R_SetMode(r_mode->integer, r_fullscreen->integer, windowFlags) )
+	{
+		return qtrue;
+	}
+
+	ri.Printf(PRINT_ALL, " Setting r_mode=%d, r_fullscreen=%d failed, falling back on r_mode=%d\n",
+			r_mode->integer, r_fullscreen->integer, 3 );
+
+	if( 0 == R_SetMode(3, qfalse, windowFlags) )
+	{
+		return qtrue;
+	}
+
+	ri.Printf(PRINT_WARNING, " Couldn't create a window: %s\n", SDL_GetError());
+	SDL_QuitSubSystem( SDL_INIT_VIDEO );
+	return qfalse;
+}
+
+
 /*
  * This routine is responsible for initializing the OS specific portions of the renderer
  */
-SDL_Window* R_CreateWindow(uint32_t windowFlags)
+void R_InitWindowAndGraphicsAPI(void)
 {
 	ri.Printf(PRINT_ALL, "\n...Creating window (using SDL2)...\n");
 
@@ -265,49 +346,51 @@ SDL_Window* R_CreateWindow(uint32_t windowFlags)
 		ri.Cvar_Set( "com_abnormalExit", "0" );
 	}
 
-	// Use this function to get a mask of the specified
-	// subsystems which have previously been initialized.
-	// If flags is 0 it returns a mask of all initialized subsystems,
-	// otherwise it returns the initialization status of the specified subsystems.
-	if (0 == SDL_WasInit(SDL_INIT_VIDEO))
-	{
-		ri.Printf(PRINT_ALL, " Video is not initialized before, so initial it.\n");
+	const char* drivers[MAX_VIDEO_DRIVERS];
+	qboolean setHint;
+	int numDrivers = R_GetVideoDrivers(drivers, &setHint);
 
-		if (SDL_Init(SDL_INIT_VIDEO) != 0)
-		{
-			ri.Printf(PRINT_ALL, " SDL_Init( SDL_INIT_VIDEO ) FAILED (%s)\n", SDL_GetError());
-		}
-		else
-		{
-			ri.Printf(PRINT_ALL, " SDL using driver \"%s\"\n", SDL_GetCurrentVideoDriver( ));
-		}
-	}
-	else
+	// If the client started the video subsystem, its driver cannot change.
+	if (SDL_WasInit(SDL_INIT_VIDEO))
 	{
 		ri.Printf(PRINT_ALL, " Video is already initialized.\n");
+		drivers[0] = SDL_GetCurrentVideoDriver();
+		numDrivers = 1;
+		setHint = qfalse;
 	}
 
-	if( 0 == R_SetMode(r_mode->integer, r_fullscreen->integer, windowFlags) )
+	char failed[MAX_STRING_CHARS] = "";
+	int i;
+	for (i = 0; i < numDrivers; i++)
 	{
-		goto success;
+		const char* name = drivers[i] ? drivers[i] : "default";
+
+		if ( !R_OpenWindow(drivers[i], setHint, gapi_sdlWindowFlags()) )
+		{
+			Q_strcat(failed, sizeof(failed), va(" %s (no window)", name));
+			continue;
+		}
+
+		if ( gapi_init(window_sdl) )
+		{
+			break;
+		}
+
+		// The graphics API released all of its objects for this window.
+		Q_strcat(failed, sizeof(failed), va(" %s (graphics API)", name));
+		SDL_DestroyWindow( window_sdl );
+		window_sdl = NULL;
+		SDL_QuitSubSystem( SDL_INIT_VIDEO );
 	}
-	else
+
+	if (i == numDrivers)
 	{
-		ri.Printf(PRINT_ALL, " Setting r_mode=%d, r_fullscreen=%d failed, falling back on r_mode=%d\n",
-				r_mode->integer, r_fullscreen->integer, 3 );
-
-		if( 0 == R_SetMode(3, qfalse, windowFlags) )
-		{
-			goto success;
-		}
-		else
-		{
-			ri.Error(ERR_FATAL, "R_CreateWindow() - could not create a window: %s", SDL_GetError());
-		}
+		ri.Error(ERR_FATAL, "R_InitWindowAndGraphicsAPI() - no SDL video driver works:%s", failed);
 	}
 
-
-success:
+	ri.Printf(PRINT_ALL, " Video driver in use: %s\n", SDL_GetCurrentVideoDriver());
+	ri.Cvar_Get( "r_sdlDriverInUse", "", CVAR_ROM );
+	ri.Cvar_Set( "r_sdlDriverInUse", SDL_GetCurrentVideoDriver() );
 
 	SDL_SetWindowIcon( window_sdl, icon );
 
@@ -315,8 +398,6 @@ success:
 
 	// This depends on SDL_INIT_VIDEO, hence having it here
 	ri.IN_Init(window_sdl);
-
-	return window_sdl;
 }
 
 

@@ -110,6 +110,10 @@ qboolean gapi_init(struct SDL_Window* window);
 void gapi_shutdown(void);
 qboolean gapi_isInitialized(void);
 
+// r_swapInterval: 0 is no vertical sync, 1 is vertical sync, -1 is adaptive
+// vertical sync. A change takes effect at the next frame.
+void gapi_setSwapInterval(int interval);
+
 // Start and end a frame. gapi_endFrame submits the frame and presents it.
 void gapi_beginFrame(void);
 void gapi_endFrame(void);

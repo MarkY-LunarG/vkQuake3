@@ -121,10 +121,9 @@ void R_Init( void )
 
 	if ( !gapi_isInitialized() )
 	{
-		if ( !gapi_init(R_CreateWindow(gapi_sdlWindowFlags())) )
-		{
-			ri.Error(ERR_FATAL, "R_Init: the graphics API cannot start\n");
-		}
+		// The first swapchain uses r_swapInterval.
+		gapi_setSwapInterval(r_swapInterval->integer);
+		R_InitWindowAndGraphicsAPI();
 
 		int width;
 		int height;
@@ -187,7 +186,11 @@ void RE_Shutdown( qboolean destroyWindow )
 
     // contains vulkan resources/state, reinitialized on a map change.
 
-    R_DestroyShaderStagePipelines();
+    // A failed R_Init can call this before the graphics API starts.
+    const qboolean gapiStarted = gapi_isInitialized();
+
+    if (gapiStarted)
+        R_DestroyShaderStagePipelines();
  
 
     reset_modelview_matrix();
@@ -200,8 +203,11 @@ void RE_Shutdown( qboolean destroyWindow )
 
     if (destroyWindow)
     {
-        R_DestroyStandardPipelines();
-        gapi_shutdown();
+        if (gapiStarted)
+        {
+            R_DestroyStandardPipelines();
+            gapi_shutdown();
+        }
         R_DestroyWindow();
         
         // It is cleared not for renderer_vulkan,

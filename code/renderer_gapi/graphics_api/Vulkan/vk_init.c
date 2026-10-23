@@ -1,6 +1,7 @@
 #include "VKimpl.h"
 #include "vk_instance.h"
 #include "vk_frame.h"
+#include "vk_swapchain.h"
 #include "vk_cmd.h"
 #include "vk_depth_attachment.h"
 #include "vk_pipeline.h"
@@ -18,7 +19,15 @@ qboolean gapi_init(struct SDL_Window* window)
     // This function is responsible for initializing a valid Vulkan subsystem.
     vk_setWindowImpl(window);
 
-    vk_getProcAddress(); 
+    // The instance, the surface, and the device depend on the window system.
+    // If they fail, the caller can try a different SDL video driver.
+    if (!vk_getProcAddress() || vk_debugFailInitImpl())
+    {
+        ri.Printf(PRINT_WARNING, "Vulkan cannot start on this window.\n");
+        vk_clearProcAddress();
+        memset(&vk, 0, sizeof(vk));
+        return qfalse;
+    }
  
 	// Swapchain. vk.physical_device required to be init. 
 	vk_createSwapChain(vk.device, vk.surface, vk.surface_format);
@@ -36,16 +45,11 @@ qboolean gapi_init(struct SDL_Window* window)
     vk_create_command_buffer(vk.command_pool, &vk.command_buffer);
 
 
-    int width;
-    int height;
+    // Depth attachment image, with the size of the swapchain.
+    vk_createDepthAttachment(vk.swapchain_extent.width, vk.swapchain_extent.height);
 
-    R_GetWinResolution(&width, &height);
-
-
-    // Depth attachment image.
-    vk_createDepthAttachment(width, height);
-
-    vk_createFrameBuffers(width, height);
+    vk_createRenderPass();
+    vk_createFrameBuffers();
 
 	// Pipeline layout.
 	// You can use uniform values in shaders, which are globals similar to
@@ -83,7 +87,8 @@ qboolean gapi_isInitialized(void)
 
 void gapi_waitIdle(void)
 {
-    qvkDeviceWaitIdle(vk.device);
+    if (vk.isInitialized)
+        qvkDeviceWaitIdle(vk.device);
 }
 
 // Shutdown vulkan subsystem by releasing resources acquired by Vk_Instance.
@@ -94,6 +99,8 @@ void gapi_shutdown(void)
     vk_destroyDepthAttachment();
 
     vk_destroyFrameBuffers();
+    vk_destroySwapchain();
+    vk_destroyRenderPass();
 
     vk_destroy_shading_data();
 

@@ -6,6 +6,15 @@
 #include "vk_swapchain.h"
 #include "glConfig.h"
 
+
+// gapi_beginFrame started a frame, so the draws record commands.
+static qboolean s_frameActive = qfalse;
+
+qboolean vk_frameActive(void)
+{
+    return s_frameActive;
+}
+
 //  Synchronization of access to resources is primarily the responsibility
 //  of the application in Vulkan. The order of execution of commands with
 //  respect to the host and other commands on the device has few implicit
@@ -157,7 +166,7 @@ void vk_destroy_sync_primitives(void)
 //
 //  A framebuffer is compatible with a render pass if it was created
 //  using the same render pass or a compatible render pass.
-static void vk_createRenderPass(VkDevice device)
+static void vk_createRenderPassImpl(VkDevice device)
 {
 
 // Before we can finish creating the pipeline, we need to tell vulkan
@@ -252,7 +261,7 @@ static void vk_createRenderPass(VkDevice device)
 
 
 
-void vk_createFrameBuffers(uint32_t w, uint32_t h) 
+void vk_createRenderPass(void)
 {
     ri.Printf(PRINT_ALL, " Create RenderPass:  vk.render_pass \n");
 	//
@@ -333,8 +342,24 @@ void vk_createFrameBuffers(uint32_t w, uint32_t h)
     // However for a given (x,y,layer,sample) sample location, certain
     // per-sample operations are performed in rasterization order.
     
-	vk_createRenderPass(vk.device);
+	vk_createRenderPassImpl(vk.device);
+}
 
+
+void vk_destroyRenderPass(void)
+{
+    if (vk.render_pass != VK_NULL_HANDLE)
+    {
+        qvkDestroyRenderPass(vk.device, vk.render_pass, NULL);
+        vk.render_pass = VK_NULL_HANDLE;
+    }
+}
+
+
+void vk_createFrameBuffers(void)
+{
+    const uint32_t w = vk.swapchain_extent.width;
+    const uint32_t h = vk.swapchain_extent.height;
 
     // Framebuffers for each swapchain image.
 	// The attachments specified during render pass creation are bound
@@ -408,18 +433,18 @@ void vk_destroyFrameBuffers(void)
 {
     // we should delete the framebuffers before the image views
     // and the render pass that they are based on.
-    ri.Printf(PRINT_ALL, " Destroy vk.framebuffers vk.swapchain_image_views vk.swapchain\n");
+    ri.Printf(PRINT_ALL, " Destroy vk.framebuffers vk.swapchain_image_views\n");
 
     uint32_t i;
 	for (i = 0; i < vk.swapchain_image_count; i++)
     {
-		qvkDestroyFramebuffer(vk.device, vk.framebuffers[i], NULL);
-		qvkDestroyImageView(vk.device, vk.swapchain_image_views[i], NULL);
+        if (vk.framebuffers[i] != VK_NULL_HANDLE)
+		    qvkDestroyFramebuffer(vk.device, vk.framebuffers[i], NULL);
+        if (vk.swapchain_image_views[i] != VK_NULL_HANDLE)
+		    qvkDestroyImageView(vk.device, vk.swapchain_image_views[i], NULL);
+        vk.framebuffers[i] = VK_NULL_HANDLE;
+        vk.swapchain_image_views[i] = VK_NULL_HANDLE;
     }
-
-    qvkDestroySwapchainKHR(vk.device, vk.swapchain, NULL);
-
-    qvkDestroyRenderPass(vk.device, vk.render_pass, NULL);
 }
 
 
@@ -451,21 +476,46 @@ void gapi_beginFrame(void)
     // semaphore that has a pending wait.
 	VK_CHECK(qvkWaitForFences(vk.device, 1, &fence_renderFinished, VK_FALSE, 1e9));
 
+    // The draws record no commands until a frame starts.
+    s_frameActive = qfalse;
+
+    // A pending swapchain change (r_swapInterval, out of date, suboptimal,
+    // surface lost) is done before the acquire.
+    if (!vk_prepareSwapchain())
+        return;
+
     {
         VkResult result = qvkAcquireNextImageKHR(vk.device, vk.swapchain, UINT64_MAX,
             sema_imageAvailable, VK_NULL_HANDLE, &vk.idx_swapchain_image);
-        if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_ERROR_SURFACE_LOST_KHR)
+        if (result == VK_ERROR_OUT_OF_DATE_KHR)
         {
-            qvkDeviceWaitIdle(vk.device);
-            vk_recreateSwapChain();
+            // Make only the swapchain again. Textures and pipelines stay.
+            if (!vk_rebuildSwapchainNow())
+                return;
             result = qvkAcquireNextImageKHR(vk.device, vk.swapchain, UINT64_MAX,
                 sema_imageAvailable, VK_NULL_HANDLE, &vk.idx_swapchain_image);
         }
-        // VK_SUBOPTIMAL_KHR is acceptable - swapchain is still usable
-        if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR)
+
+        if (result == VK_SUBOPTIMAL_KHR)
+        {
+            // The swapchain is still usable. Make it again at the next frame.
+            vk_requestSwapchainRebuild();
+        }
+        else if (result == VK_ERROR_SURFACE_LOST_KHR)
+        {
+            vk_requestSurfaceRecreate();
+            return;
+        }
+        else if (result == VK_ERROR_OUT_OF_DATE_KHR)
+        {
+            vk_requestSwapchainRebuild();
+            return;
+        }
+        else if (result != VK_SUCCESS)
         {
             ri.Printf(PRINT_ALL, "Vulkan: error %s returned by qvkAcquireNextImageKHR\n",
                 cvtResToStr(result));
+            return;
         }
     }
 
@@ -563,23 +613,25 @@ void gapi_beginFrame(void)
 
     // The render area covers the whole framebuffer, because the draws and
     // the clears in the pass can use any part of it.
-    int width, height;
-    R_GetWinResolution(&width, &height);
     renderPass_beginInfo.renderArea.offset.x = 0;
     renderPass_beginInfo.renderArea.offset.y = 0;
-    renderPass_beginInfo.renderArea.extent.width = width;
-    renderPass_beginInfo.renderArea.extent.height = height;
+    renderPass_beginInfo.renderArea.extent = vk.swapchain_extent;
 
     renderPass_beginInfo.clearValueCount = 2;
 	renderPass_beginInfo.pClearValues = clear_values;
 
 	qvkCmdBeginRenderPass(vk.command_buffer, &renderPass_beginInfo, VK_SUBPASS_CONTENTS_INLINE);
 
+    s_frameActive = qtrue;
 }
 
 
 void gapi_endFrame(void)
 {
+	// gapi_beginFrame skipped the frame: there is nothing to submit.
+	if (!s_frameActive)
+		return;
+
 	qvkCmdEndRenderPass(vk.command_buffer);
 	
     VK_CHECK(qvkEndCommandBuffer(vk.command_buffer));
@@ -666,21 +718,25 @@ void gapi_endFrame(void)
     // queue is a queue that is capable of presentation to the target 
     // surface's platform on the same device as the image's swapchain.
     VkResult result = qvkQueuePresentKHR(vk.queue, &present_info);
-    // VK_SUCCESS and VK_SUBOPTIMAL_KHR are both acceptable results.
     // VK_SUBOPTIMAL_KHR means the swapchain can still be used but doesn't
-    // match the surface properties exactly (common on Wayland).
-    if(result == VK_SUCCESS || result == VK_SUBOPTIMAL_KHR)
+    // match the surface properties exactly (common on Wayland). Then, and
+    // for VK_ERROR_OUT_OF_DATE_KHR, the swapchain is made again before the
+    // next frame. Textures and pipelines stay.
+    if(result == VK_SUCCESS)
     {
         return;
     }
-    else if( (result == VK_ERROR_OUT_OF_DATE_KHR) || (result == VK_ERROR_SURFACE_LOST_KHR))
+    else if( (result == VK_SUBOPTIMAL_KHR) || (result == VK_ERROR_OUT_OF_DATE_KHR) )
     {
-        // we first call vkDeviceWaitIdle because we 
-        // shouldn't touch resources that still be in use
-        qvkDeviceWaitIdle(vk.device);
-        // recreate the objects that depend on the swap chain and the window size
-
-        vk_recreateSwapChain();
+        vk_requestSwapchainRebuild();
+    }
+    else if (result == VK_ERROR_SURFACE_LOST_KHR)
+    {
+        vk_requestSurfaceRecreate();
+    }
+    else
+    {
+        ri.Printf(PRINT_ALL, "Vulkan: error %s returned by qvkQueuePresentKHR\n", cvtResToStr(result));
     }
 }
 

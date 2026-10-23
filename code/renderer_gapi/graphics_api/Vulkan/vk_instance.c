@@ -156,7 +156,7 @@ static void vk_createDebugCallback( PFN_vkDebugReportCallbackEXT qvkDebugCB)
 #endif
 
 
-static void vk_createInstance(void)
+static qboolean vk_createInstance(void)
 {
     // There is no global state in Vulkan and all per-application state
     // is stored in a VkInstance object. Creating a VkInstance object 
@@ -222,10 +222,15 @@ static void vk_createInstance(void)
 	// report extension in debug builds. Some other instance extensions need
 	// a Vulkan version that is higher than appInfo.apiVersion.
 	uint32_t nWindowExt = 0;
-	vk_getInstanceExtensionsImpl(&nWindowExt, NULL);
+	if (!vk_getInstanceExtensionsImpl(&nWindowExt, NULL))
+		return qfalse;
 
 	const char** ppInstanceExt = malloc( sizeof(char *) * (nWindowExt + 1) );
-	vk_getInstanceExtensionsImpl(&nWindowExt, ppInstanceExt);
+	if (!vk_getInstanceExtensionsImpl(&nWindowExt, ppInstanceExt))
+	{
+		free(ppInstanceExt);
+		return qfalse;
+	}
 
 	uint32_t nInsExt = nWindowExt;
 #ifndef NDEBUG
@@ -256,32 +261,36 @@ static void vk_createInstance(void)
 
 
     VkResult e = qvkCreateInstance(&instanceCreateInfo, NULL, &vk.instance);
+    free(ppInstanceExt);
+
     if(e == VK_SUCCESS)
     {
         ri.Printf(PRINT_ALL, "--- Vulkan create instance success! ---\n\n");
+        return qtrue;
     }
-    else if (e == VK_ERROR_INCOMPATIBLE_DRIVER)
+
+    vk.instance = VK_NULL_HANDLE;
+    if (e == VK_ERROR_INCOMPATIBLE_DRIVER)
 	{
 		// The requested version of Vulkan is not supported by the driver 
 		// or is otherwise incompatible for implementation-specific reasons.
-        ri.Error(ERR_FATAL, 
-            "The requested version of Vulkan is not supported by the driver." );
+        ri.Printf(PRINT_WARNING,
+            "The requested version of Vulkan is not supported by the driver.\n" );
     }
     else if (e == VK_ERROR_EXTENSION_NOT_PRESENT)
     {
-        ri.Error(ERR_FATAL, "Cannot find a specified extension library.");
+        ri.Printf(PRINT_WARNING, "Cannot find a specified extension library.\n");
     }
     else 
     {
-        ri.Error(ERR_FATAL, "%d, returned by qvkCreateInstance.", e);
+        ri.Printf(PRINT_WARNING, "%s, returned by qvkCreateInstance.\n", cvtResToStr(e));
     }
-   
-    free(ppInstanceExt);
+    return qfalse;
 }
 
 
 
-static void vk_loadGlobalFunctions(void)
+static qboolean vk_loadGlobalFunctions(void)
 {
     ri.Printf(PRINT_ALL, " Loading vulkan instance functions \n");
 
@@ -299,7 +308,8 @@ static void vk_loadGlobalFunctions(void)
     //
 	// Get instance level functions.
 	//
-	vk_createInstance();
+	if (!vk_createInstance())
+		return qfalse;
 
 
 	INIT_INSTANCE_FUNCTION(vkCreateDevice)
@@ -329,12 +339,13 @@ static void vk_loadGlobalFunctions(void)
     #undef INIT_INSTANCE_FUNCTION
 
     ri.Printf(PRINT_ALL, " Init global functions done. \n");
+    return qtrue;
 }
 
 ////////////////////////////////
 
 
-static void vk_selectPhysicalDevice(void)
+static qboolean vk_selectPhysicalDevice(void)
 {
     // After initializing the Vulkan library through a VkInstance
     // we need to look for and select a graphics card in the system
@@ -346,7 +357,10 @@ static void vk_selectPhysicalDevice(void)
 	qvkEnumeratePhysicalDevices(vk.instance, &gpu_count, NULL);
 
 	if (gpu_count <= 0)
-		ri.Error(ERR_FATAL, "Vulkan: no physical device found");
+	{
+		ri.Printf(PRINT_WARNING, "Vulkan: no physical device found\n");
+		return qfalse;
+	}
 
     VkPhysicalDevice *pPhyDev = (VkPhysicalDevice *) malloc (sizeof(VkPhysicalDevice) * gpu_count);
     
@@ -361,11 +375,12 @@ static void vk_selectPhysicalDevice(void)
 
     ri.Printf(PRINT_ALL, " Get physical device memory properties: vk.devMemProperties \n");
     qvkGetPhysicalDeviceMemoryProperties(vk.physical_device, &vk.devMemProperties);
+    return qtrue;
 }
 
 
 
-static void vk_selectSurfaceFormat(void)
+static qboolean vk_selectSurfaceFormat(void)
 {
     uint32_t nSurfmt;
     
@@ -425,11 +440,17 @@ static void vk_selectSurfaceFormat(void)
 
     // VK_IMAGE_USAGE_TRANSFER_DST_BIT is required by image clear operations.
 	if ((vk.surface_caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_DST_BIT) == 0)
-		ri.Error(ERR_FATAL, "VK_IMAGE_USAGE_TRANSFER_DST_BIT is not supported by you GPU.");
+	{
+		ri.Printf(PRINT_WARNING, "VK_IMAGE_USAGE_TRANSFER_DST_BIT is not supported by you GPU.\n");
+		return qfalse;
+	}
 
 	// VK_IMAGE_USAGE_TRANSFER_SRC_BIT is required in order to take screenshots.
 	if ((vk.surface_caps.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT) == 0)
-		ri.Error(ERR_FATAL, "VK_IMAGE_USAGE_TRANSFER_SRC_BIT is not supported by you GPU.");
+	{
+		ri.Printf(PRINT_WARNING, "VK_IMAGE_USAGE_TRANSFER_SRC_BIT is not supported by you GPU.\n");
+		return qfalse;
+	}
 
 
     // To query supported format features which are properties of the physical device
@@ -480,15 +501,17 @@ static void vk_selectSurfaceFormat(void)
             //formats[0] = VK_FORMAT_X8_D24_UNORM_PACK32;
 		    //formats[1] = VK_FORMAT_D32_SFLOAT;
             // never get here.
-	        ri.Error(ERR_FATAL, " Failed to find depth attachment format.");
+	        ri.Printf(PRINT_WARNING, " Failed to find depth attachment format.\n");
+	        return qfalse;
         }
     }
 
     ri.Printf(PRINT_ALL, " -------- --------------------------- --------\n");
+    return qtrue;
 }
 
 
-static void vk_selectQueueFamilyForPresentation(void)
+static qboolean vk_selectQueueFamilyForPresentation(void)
 {
     // Almosty every operation in Vulkan, anything from drawing textures,
     // requires commands to be submitted to a queue. There are different
@@ -540,11 +563,15 @@ static void vk_selectQueueFamilyForPresentation(void)
     free(pQueueFamilies);
 
     if (vk.queue_family_index == -1)
-        ri.Error(ERR_FATAL, "Vulkan: failed to find queue family");
+    {
+        ri.Printf(PRINT_WARNING, "Vulkan: failed to find queue family\n");
+        return qfalse;
+    }
+    return qtrue;
 }
 
 
-static void vk_createLogicalDevice(void)
+static qboolean vk_createLogicalDevice(void)
 {
     static const char* device_extensions[1] = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
@@ -581,7 +608,11 @@ static void vk_createLogicalDevice(void)
         }
     }
     if (VK_FALSE == swapchainExtFound)
-        ri.Error(ERR_FATAL, "VK_KHR_SWAPCHAIN_EXTENSION_NAME is not available");
+    {
+        ri.Printf(PRINT_WARNING, "VK_KHR_SWAPCHAIN_EXTENSION_NAME is not available\n");
+        free(pDeviceExt);
+        return qfalse;
+    }
 
     free(pDeviceExt);
 
@@ -622,8 +653,14 @@ static void vk_createLogicalDevice(void)
     // queue families are available. You can create multiple logical
     // devices from the same physical device if you have varying requirements.
     ri.Printf( PRINT_ALL, " Create logical device: vk.device \n" );
-    VK_CHECK(qvkCreateDevice(vk.physical_device, &device_desc, NULL, &vk.device));
-
+    VkResult e = qvkCreateDevice(vk.physical_device, &device_desc, NULL, &vk.device);
+    if (e != VK_SUCCESS)
+    {
+        ri.Printf(PRINT_WARNING, "%s, returned by qvkCreateDevice.\n", cvtResToStr(e));
+        vk.device = VK_NULL_HANDLE;
+        return qfalse;
+    }
+    return qtrue;
 }
 
 
@@ -719,9 +756,10 @@ static void vk_loadDeviceFunctions(void)
 
 
 
-void vk_getProcAddress(void)
+qboolean vk_getProcAddress(void)
 {
-    vk_loadGlobalFunctions();
+    if (!vk_loadGlobalFunctions())
+        return qfalse;
 
 #ifndef NDEBUG
 	// Create debug callback.
@@ -730,22 +768,28 @@ void vk_getProcAddress(void)
 
     // The window surface needs to be created right after the instance creation,
     // because it can actually influence the presentation mode selection.
-	vk_createSurfaceImpl(); 
+	if (!vk_createSurfaceImpl())
+        return qfalse;
    
     // select physical device
-    vk_selectPhysicalDevice();
+    if (!vk_selectPhysicalDevice())
+        return qfalse;
 
-    vk_selectSurfaceFormat(); 
+    if (!vk_selectSurfaceFormat())
+        return qfalse;
 
-    vk_selectQueueFamilyForPresentation();
+    if (!vk_selectQueueFamilyForPresentation())
+        return qfalse;
 
-    vk_createLogicalDevice();
+    if (!vk_createLogicalDevice())
+        return qfalse;
 
     // Get device level functions.
     vk_loadDeviceFunctions();
 
     // a call to retrieve queue handle
 	qvkGetDeviceQueue(vk.device, vk.queue_family_index, 0, &vk.queue);
+    return qtrue;
 }
 
 
@@ -755,20 +799,26 @@ void vk_clearProcAddress(void)
     ri.Printf( PRINT_ALL, " Destroy logical device: vk.device. \n" );
     // Device queues are implicitly cleaned up when the device is destroyed
     // so we don't need to do anything in clean up
-	qvkDestroyDevice(vk.device, NULL);
+    // A failed start can leave some of the objects. Destroy only the
+    // objects that exist.
+	if (vk.device != VK_NULL_HANDLE)
+		qvkDestroyDevice(vk.device, NULL);
     
     ri.Printf( PRINT_ALL, " Destroy surface: vk.surface. \n" );
     // make sure that the surface is destroyed before the instance
-    qvkDestroySurfaceKHR(vk.instance, vk.surface, NULL);
+	if (vk.surface != VK_NULL_HANDLE)
+		qvkDestroySurfaceKHR(vk.instance, vk.surface, NULL);
 
 #ifndef NDEBUG
     ri.Printf( PRINT_ALL, " Destroy callback function: vk.h_debugCB. \n" );
 
-	qvkDestroyDebugReportCallbackEXT(vk.instance, vk.h_debugCB, NULL);
+	if (vk.h_debugCB != VK_NULL_HANDLE)
+		qvkDestroyDebugReportCallbackEXT(vk.instance, vk.h_debugCB, NULL);
 #endif
 
     ri.Printf( PRINT_ALL, " Destroy instance: vk.instance. \n" );
-	qvkDestroyInstance(vk.instance, NULL);
+	if (vk.instance != VK_NULL_HANDLE)
+		qvkDestroyInstance(vk.instance, NULL);
 
 // ===========================================================
     ri.Printf( PRINT_ALL, " clear all proc address \n" );

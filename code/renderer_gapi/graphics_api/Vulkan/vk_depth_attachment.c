@@ -121,7 +121,14 @@ void vk_createDepthAttachment(int Width, int Height)
 
 void vk_destroyDepthAttachment(void)
 {
-    qvkDestroyImageView(vk.device, vk.depth_image_view, NULL);
-	qvkDestroyImage(vk.device, vk.depth_image, NULL);
-	qvkFreeMemory(vk.device, vk.depth_image_memory, NULL);
+    if (vk.depth_image_view != VK_NULL_HANDLE)
+        qvkDestroyImageView(vk.device, vk.depth_image_view, NULL);
+    if (vk.depth_image != VK_NULL_HANDLE)
+	    qvkDestroyImage(vk.device, vk.depth_image, NULL);
+    if (vk.depth_image_memory != VK_NULL_HANDLE)
+	    qvkFreeMemory(vk.device, vk.depth_image_memory, NULL);
+
+    vk.depth_image_view = VK_NULL_HANDLE;
+    vk.depth_image = VK_NULL_HANDLE;
+    vk.depth_image_memory = VK_NULL_HANDLE;
 }

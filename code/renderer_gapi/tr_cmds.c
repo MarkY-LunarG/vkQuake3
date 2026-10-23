@@ -538,6 +538,7 @@ void R_IssueRenderCommands( qboolean runPerformanceCounters )
                 // data = RB_DrawBuffer( data ); 
                 // const drawBufferCommand_t * const cmd = (const drawBufferCommand_t *)data;
                 reset_modelview_matrix();
+                gapi_setSwapInterval(r_swapInterval->integer);
                 gapi_beginFrame();
 
                 data += sizeof(drawBufferCommand_t);
