@@ -21,6 +21,25 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 #include "vm_local.h"
 
+/*
+==================
+VM_FloatToInt
+
+OP_CVFI comes from a C cast in the QVM code, so it truncates toward zero.
+Q_ftol is lrintf on platforms without x86 code (for example WebAssembly), and
+lrintf rounds to the nearest integer. Out of the int range, the result is the
+same as the x86-64 code (cvttss2si with a 64-bit result, then the low 32 bits).
+==================
+*/
+static int VM_FloatToInt( float f )
+{
+	if ( f > -2147483648.0f && f < 2147483648.0f )
+		return (int) f;
+	if ( f != f || f >= 9223372036854775808.0f || f < -9223372036854775808.0f )
+		return 0;
+	return (int) (unsigned int) (unsigned long long) (long long) f;
+}
+
 //#define	DEBUG_VM
 #ifdef DEBUG_VM
 static char	*opnames[256] = {
@@ -877,7 +896,7 @@ nextInstruction2:
 			((float *) opStack)[opStackOfs] = (float) opStack[opStackOfs];
 			goto nextInstruction;
 		case OP_CVFI:
-			opStack[opStackOfs] = Q_ftol(((float *) opStack)[opStackOfs]);
+			opStack[opStackOfs] = VM_FloatToInt(((float *) opStack)[opStackOfs]);
 			goto nextInstruction;
 		case OP_SEX8:
 			opStack[opStackOfs] = (signed char) opStack[opStackOfs];
