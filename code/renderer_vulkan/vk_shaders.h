@@ -6,15 +6,11 @@
 
 
 #include "tr_state_bits.h"
+#include "graphics_api/gapi.h"
 
-enum Vk_Shader_Type {
-    ST_SINGLE_TEXTURE,
-	ST_MULTI_TEXURE_MUL,
-	ST_MULTI_TEXURE_ADD
-};
 
 void vk_loadShaderModules(void);
-void vk_specifyShaderModule(const enum Vk_Shader_Type shader_type, const VkBool32 isClippingPlane, VkShaderModule* vs, VkShaderModule* fs);
+void vk_specifyShaderModule(const gapi_shaderType_t shader_type, const VkBool32 isClippingPlane, VkShaderModule* vs, VkShaderModule* fs);
 void vk_destroyShaderModules(void);
 
 #endif

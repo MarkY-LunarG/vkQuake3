@@ -3,7 +3,8 @@
 #include "vk_frame.h"
 #include "vk_cmd.h"
 #include "vk_depth_attachment.h"
-#include "vk_pipelines.h"
+#include "tr_pipelines.h"
+#include "vk_pipeline.h"
 #include "vk_geometry.h"
 #include "vk_shaders.h"
 #include "glConfig.h"
@@ -82,6 +83,12 @@ VkBool32 isVKinitialied(void)
 }
 
 
+void gapi_waitIdle(void)
+{
+    qvkDeviceWaitIdle(vk.device);
+}
+
+
 void gapi_getCaps(gapi_caps_t* caps)
 {
     caps->fillModeLine = vk.features.fillModeNonSolid ? qtrue : qfalse;
@@ -103,7 +110,8 @@ void vk_shutdown(void)
     vk_destroyShaderModules();
 
 //
-    vk_destroyGlobalStagePipeline();
+    R_DestroyStandardPipelines();
+    vk_destroyPipelineLayout();
 //
     vk_destroy_commands();
 

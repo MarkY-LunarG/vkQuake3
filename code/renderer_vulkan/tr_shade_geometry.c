@@ -3,7 +3,7 @@
 #include "tr_globals.h"
 #include "tr_cvar.h"
 #include "vk_image.h"
-#include "vk_pipelines.h"
+#include "tr_pipelines.h"
 #include "matrix_multiplication.h"
 #include "tr_backend.h"
 #include "glConfig.h"

@@ -1,14 +1,13 @@
-#ifndef VK_PIPELINES_H_
-#define VK_PIPELINES_H_
+#ifndef TR_PIPELINES_H_
+#define TR_PIPELINES_H_
 
 #include "tr_local.h"
 
 void create_standard_pipelines(void);
 void create_pipelines_for_each_stage(shaderStage_t *pStage, shader_t* pShader);
-void vk_createPipelineLayout(void);
 
-void vk_destroyShaderStagePipeline(void);
-void vk_destroyGlobalStagePipeline(void);
+void R_DestroyShaderStagePipelines(void);
+void R_DestroyStandardPipelines(void);
 
 void R_PipelineList_f(void);
 

@@ -26,6 +26,39 @@ typedef struct {
 	qboolean fillModeLine;		// pipelines can draw triangles as lines (GLS_POLYMODE_LINE)
 } gapi_caps_t;
 
+// The fragment shader of a pipeline.
+typedef enum {
+	GAPI_SHADER_SINGLE_TEXTURE,
+	GAPI_SHADER_MULTI_TEXTURE_MUL,	// texture 0 * texture 1
+	GAPI_SHADER_MULTI_TEXTURE_ADD	// texture 0 + texture 1
+} gapi_shaderType_t;
+
+// The face culling of a pipeline, in the same order as cullType_t.
+typedef enum {
+	GAPI_CULL_FRONT_SIDED,
+	GAPI_CULL_BACK_SIDED,
+	GAPI_CULL_TWO_SIDED
+} gapi_cullType_t;
+
+// The stencil shadow phase of a pipeline (cg_shadows 2).
+typedef enum {
+	GAPI_SHADOW_DISABLED,
+	GAPI_SHADOW_EDGES,				// increment or decrement the stencil, no color
+	GAPI_SHADOW_FULLSCREEN_QUAD		// darken where the stencil is not 0
+} gapi_shadowPhase_t;
+
+// The state of a graphics pipeline.
+typedef struct {
+	uint32_t stateBits;				// GLS_* bits
+	gapi_cullType_t cullType;
+	qboolean polygonOffset;			// depth bias from gapi_draw_t
+	qboolean clipPlane;				// portal view: clip with the clip plane
+	qboolean mirror;				// mirror view: the front face is reversed
+	qboolean linePrimitives;		// draw lines, not triangles
+	gapi_shaderType_t shaderType;
+	gapi_shadowPhase_t shadowPhase;
+} gapi_pipelineDesc_t;
+
 // The depth range of a draw, set with the viewport.
 typedef enum {
 	GAPI_DEPTH_NORMAL,	// [0..1]
@@ -64,6 +97,14 @@ typedef struct {
 
 // Get the optional features. Call this after the graphics API starts.
 void gapi_getCaps(gapi_caps_t* caps);
+
+// Wait until the device is idle. Call this before resources that the device
+// can use are destroyed.
+void gapi_waitIdle(void);
+
+// Create and destroy a graphics pipeline. The shared code keeps the cache.
+gapi_pipeline_t* gapi_createPipeline(const gapi_pipelineDesc_t* desc);
+void gapi_destroyPipeline(gapi_pipeline_t* pipeline);
 
 // Set the vertex shader constants for the next draws.
 void gapi_setVertexConstants(const gapi_vertexConstants_t* constants);

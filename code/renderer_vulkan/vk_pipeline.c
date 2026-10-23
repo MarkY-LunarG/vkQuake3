@@ -1,9 +1,11 @@
 #include "tr_local.h"
 #include "vk_instance.h"
 #include "vk_shaders.h"
-#include "vk_pipelines.h"
+#include "vk_pipeline.h"
 #include "vk_gapi_types.h"
-#include "tr_shader.h"
+#include "tr_state_bits.h"
+
+
 // The graphics pipeline is the sequence of operations that take the vertices
 // and textures of your meshes all the way to the pixels in the render targets
 //
@@ -41,46 +43,8 @@
 
 
 // used with cg_shadows == 2
-enum Vk_Shadow_Phase {
-    SHADOWS_RENDERING_DISABLED,
-	SHADOWS_RENDERING_EDGES,
-    SHADOWS_RENDERING_FULLSCREEN_QUAD
-};
 
 
-struct Vk_Pipeline_Def {
-    VkPipeline pipeline;
-    uint32_t state_bits; // GLS_XXX flags
-	cullType_t face_culling;// cullType_t
-	VkBool32 polygon_offset;
-	VkBool32 clipping_plane;
-	VkBool32 mirror;
-	VkBool32 line_primitives;
-    enum Vk_Shader_Type shader_type;
-	enum Vk_Shadow_Phase shadow_phase;
-};
-
-
-struct GlobalPipelineManager g_stdPipelines;
-
-#define MAX_VK_PIPELINES        1024
-static struct Vk_Pipeline_Def s_pipeline_defs[MAX_VK_PIPELINES];
-static uint32_t s_numPipelines = 0;
-
-// The handles of the Q3 shader stage pipelines, at the same index as
-// s_pipeline_defs.
-static struct gapi_pipeline_s s_stagePipelines[MAX_VK_PIPELINES];
-
-// The handles of the standard pipelines in g_stdPipelines.
-#define MAX_STD_PIPELINES       64
-static struct gapi_pipeline_s s_stdPipelines[MAX_STD_PIPELINES];
-static uint32_t s_numStdPipelines = 0;
-
-
-void R_PipelineList_f(void)
-{
-    ri.Printf(PRINT_ALL, " Total pipeline created: %d\n", s_numPipelines);
-}
 
 
 
@@ -204,7 +168,8 @@ void vk_createPipelineLayout(void)
 }
 
 
-static void vk_create_pipeline(const struct Vk_Pipeline_Def* def, VkPipeline* pPipeLine)
+
+static void vk_create_pipeline(const gapi_pipelineDesc_t* def, VkPipeline* pPipeLine)
 {
 
 	struct Specialization_Data {
@@ -213,20 +178,20 @@ static void vk_create_pipeline(const struct Vk_Pipeline_Def* def, VkPipeline* pP
 		int32_t clipping_plane;
 	} specialization_data;
 
-	if ((def->state_bits & GLS_ATEST_BITS) == 0)
+	if ((def->stateBits & GLS_ATEST_BITS) == 0)
 		specialization_data.alpha_test_func = 0;
-	else if (def->state_bits & GLS_ATEST_GT_0)
+	else if (def->stateBits & GLS_ATEST_GT_0)
 		specialization_data.alpha_test_func = 1;
-	else if (def->state_bits & GLS_ATEST_LT_80)
+	else if (def->stateBits & GLS_ATEST_LT_80)
 		specialization_data.alpha_test_func = 2;
-	else if (def->state_bits & GLS_ATEST_GE_80)
+	else if (def->stateBits & GLS_ATEST_GE_80)
 		specialization_data.alpha_test_func = 3;
 	else
 		ri.Error(ERR_DROP, "create_pipeline: invalid alpha test state bits\n");
 
-	specialization_data.color_op = def->shader_type == ST_MULTI_TEXURE_ADD;
+	specialization_data.color_op = def->shaderType == GAPI_SHADER_MULTI_TEXTURE_ADD;
 
-	specialization_data.clipping_plane = def->clipping_plane && !vk.features.shaderClipDistance;
+	specialization_data.clipping_plane = def->clipPlane && !vk.features.shaderClipDistance;
 
 	VkSpecializationMapEntry specialization_entries[3];
 	specialization_entries[0].constantID = 0;
@@ -275,7 +240,7 @@ static void vk_create_pipeline(const struct Vk_Pipeline_Def* def, VkPipeline* pP
 	shaderStages[0].pSpecializationInfo = &specialization_info;
 	shaderStages[1].pSpecializationInfo = &specialization_info;
 
-    vk_specifyShaderModule(def->shader_type, def->clipping_plane, &shaderStages[0].module, &shaderStages[1].module);
+    vk_specifyShaderModule(def->shaderType, def->clipPlane, &shaderStages[0].module, &shaderStages[1].module);
 
 	// ============== Vertex Input Description =================
     // Applications specify vertex input attribute and vertex input binding
@@ -334,9 +299,9 @@ static void vk_create_pipeline(const struct Vk_Pipeline_Def* def, VkPipeline* pP
 	vertex_input_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 	vertex_input_state.pNext = NULL;
 	vertex_input_state.flags = 0;
-	vertex_input_state.vertexBindingDescriptionCount = (def->shader_type == ST_SINGLE_TEXTURE) ? 3 : 4;
+	vertex_input_state.vertexBindingDescriptionCount = (def->shaderType == GAPI_SHADER_SINGLE_TEXTURE) ? 3 : 4;
 	vertex_input_state.pVertexBindingDescriptions = bindings;
-	vertex_input_state.vertexAttributeDescriptionCount = (def->shader_type == ST_SINGLE_TEXTURE) ? 3 : 4;
+	vertex_input_state.vertexAttributeDescriptionCount = (def->shaderType == GAPI_SHADER_SINGLE_TEXTURE) ? 3 : 4;
 	vertex_input_state.pVertexAttributeDescriptions = attribs;
 
 	//
@@ -346,7 +311,7 @@ static void vk_create_pipeline(const struct Vk_Pipeline_Def* def, VkPipeline* pP
 	input_assembly_state.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
 	input_assembly_state.pNext = NULL;
 	input_assembly_state.flags = 0;
-	input_assembly_state.topology = def->line_primitives ? VK_PRIMITIVE_TOPOLOGY_LINE_LIST : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+	input_assembly_state.topology = def->linePrimitives ? VK_PRIMITIVE_TOPOLOGY_LINE_LIST : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 	input_assembly_state.primitiveRestartEnable = VK_FALSE;
 
 	//
@@ -373,18 +338,18 @@ static void vk_create_pipeline(const struct Vk_Pipeline_Def* def, VkPipeline* pP
 	rasterization_state.flags = 0;
 	rasterization_state.depthClampEnable = VK_FALSE;
 	rasterization_state.rasterizerDiscardEnable = VK_FALSE;
-	rasterization_state.polygonMode = (def->state_bits & GLS_POLYMODE_LINE) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
+	rasterization_state.polygonMode = (def->stateBits & GLS_POLYMODE_LINE) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
 
-    switch ( def->face_culling )
+    switch ( def->cullType )
     {
-        case CT_TWO_SIDED:
+        case GAPI_CULL_TWO_SIDED:
             rasterization_state.cullMode = VK_CULL_MODE_NONE;
             break;
-        case CT_FRONT_SIDED:
+        case GAPI_CULL_FRONT_SIDED:
             rasterization_state.cullMode = 
                 (def->mirror ? VK_CULL_MODE_FRONT_BIT : VK_CULL_MODE_BACK_BIT);
             break;
-        case CT_BACK_SIDED:
+        case GAPI_CULL_BACK_SIDED:
             rasterization_state.cullMode = 
                 (def->mirror ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_FRONT_BIT);
             break;
@@ -394,7 +359,7 @@ static void vk_create_pipeline(const struct Vk_Pipeline_Def* def, VkPipeline* pP
     // how fragments are generated for geometry.
 	rasterization_state.frontFace = VK_FRONT_FACE_CLOCKWISE; // Q3 defaults to clockwise vertex order
 
-	rasterization_state.depthBiasEnable = def->polygon_offset ? VK_TRUE : VK_FALSE;
+	rasterization_state.depthBiasEnable = def->polygonOffset ? VK_TRUE : VK_FALSE;
 	rasterization_state.depthBiasConstantFactor = 0.0f; // dynamic depth bias state
 	rasterization_state.depthBiasClamp = 0.0f; // dynamic depth bias state
 	rasterization_state.depthBiasSlopeFactor = 0.0f; // dynamic depth bias state
@@ -417,16 +382,16 @@ static void vk_create_pipeline(const struct Vk_Pipeline_Def* def, VkPipeline* pP
 	depth_stencil_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
 	depth_stencil_state.pNext = NULL;
 	depth_stencil_state.flags = 0;
-	depth_stencil_state.depthTestEnable = (def->state_bits & GLS_DEPTHTEST_DISABLE) ? VK_FALSE : VK_TRUE;
-	depth_stencil_state.depthWriteEnable = (def->state_bits & GLS_DEPTHMASK_TRUE) ? VK_TRUE : VK_FALSE;
-	depth_stencil_state.depthCompareOp = (def->state_bits & GLS_DEPTHFUNC_EQUAL) ? VK_COMPARE_OP_EQUAL : VK_COMPARE_OP_LESS_OR_EQUAL;
+	depth_stencil_state.depthTestEnable = (def->stateBits & GLS_DEPTHTEST_DISABLE) ? VK_FALSE : VK_TRUE;
+	depth_stencil_state.depthWriteEnable = (def->stateBits & GLS_DEPTHMASK_TRUE) ? VK_TRUE : VK_FALSE;
+	depth_stencil_state.depthCompareOp = (def->stateBits & GLS_DEPTHFUNC_EQUAL) ? VK_COMPARE_OP_EQUAL : VK_COMPARE_OP_LESS_OR_EQUAL;
 	depth_stencil_state.depthBoundsTestEnable = VK_FALSE;
-	depth_stencil_state.stencilTestEnable = (def->shadow_phase != SHADOWS_RENDERING_DISABLED) ? VK_TRUE : VK_FALSE;
+	depth_stencil_state.stencilTestEnable = (def->shadowPhase != GAPI_SHADOW_DISABLED) ? VK_TRUE : VK_FALSE;
 
-	if (def->shadow_phase == SHADOWS_RENDERING_EDGES)
+	if (def->shadowPhase == GAPI_SHADOW_EDGES)
     {
 		depth_stencil_state.front.failOp = VK_STENCIL_OP_KEEP;
-		depth_stencil_state.front.passOp = (def->face_culling == CT_FRONT_SIDED) ? VK_STENCIL_OP_INCREMENT_AND_CLAMP : VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+		depth_stencil_state.front.passOp = (def->cullType == GAPI_CULL_FRONT_SIDED) ? VK_STENCIL_OP_INCREMENT_AND_CLAMP : VK_STENCIL_OP_DECREMENT_AND_CLAMP;
 		depth_stencil_state.front.depthFailOp = VK_STENCIL_OP_KEEP;
 		depth_stencil_state.front.compareOp = VK_COMPARE_OP_ALWAYS;
 		depth_stencil_state.front.compareMask = 255;
@@ -435,7 +400,7 @@ static void vk_create_pipeline(const struct Vk_Pipeline_Def* def, VkPipeline* pP
 
 		depth_stencil_state.back = depth_stencil_state.front;
     }
-    else if (def->shadow_phase == SHADOWS_RENDERING_FULLSCREEN_QUAD)
+    else if (def->shadowPhase == GAPI_SHADOW_FULLSCREEN_QUAD)
     {
 		depth_stencil_state.front.failOp = VK_STENCIL_OP_KEEP;
 		depth_stencil_state.front.passOp = VK_STENCIL_OP_KEEP;
@@ -467,16 +432,16 @@ static void vk_create_pipeline(const struct Vk_Pipeline_Def* def, VkPipeline* pP
     // contains the configuraturation per attached framebuffer
     
 	VkPipelineColorBlendAttachmentState attachment_blend_state = {};
-	attachment_blend_state.blendEnable = (def->state_bits & (GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS)) ? VK_TRUE : VK_FALSE;
+	attachment_blend_state.blendEnable = (def->stateBits & (GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS)) ? VK_TRUE : VK_FALSE;
 
-	if (def->shadow_phase == SHADOWS_RENDERING_EDGES)
+	if (def->shadowPhase == GAPI_SHADOW_EDGES)
 		attachment_blend_state.colorWriteMask = 0;
 	else
 		attachment_blend_state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 	
 	if (attachment_blend_state.blendEnable)
     {
-		switch (def->state_bits & GLS_SRCBLEND_BITS)
+		switch (def->stateBits & GLS_SRCBLEND_BITS)
         {
 			case GLS_SRCBLEND_ZERO:
 				attachment_blend_state.srcColorBlendFactor = VK_BLEND_FACTOR_ZERO;
@@ -509,7 +474,7 @@ static void vk_create_pipeline(const struct Vk_Pipeline_Def* def, VkPipeline* pP
 				ri.Error( ERR_DROP, "create_pipeline: invalid src blend state bits\n" );
 				break;
 		}
-		switch (def->state_bits & GLS_DSTBLEND_BITS)
+		switch (def->stateBits & GLS_DSTBLEND_BITS)
         {
 			case GLS_DSTBLEND_ZERO:
 				attachment_blend_state.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
@@ -665,301 +630,33 @@ static void vk_create_pipeline(const struct Vk_Pipeline_Def* def, VkPipeline* pP
 
 
 
-static gapi_pipeline_t* vk_find_pipeline(struct Vk_Pipeline_Def* def)
+void vk_destroyPipelineLayout(void)
 {
-    uint32_t i = 0;
-	for (i = 0; i < s_numPipelines; i++)
-    {
-		if (s_pipeline_defs[i].shader_type == def->shader_type &&
-			s_pipeline_defs[i].state_bits == def->state_bits &&
-			s_pipeline_defs[i].face_culling == def->face_culling &&
-			s_pipeline_defs[i].polygon_offset == def->polygon_offset &&
-			s_pipeline_defs[i].clipping_plane == def->clipping_plane &&
-			s_pipeline_defs[i].mirror == def->mirror 
-			// && s_pipeline_defs[i].line_primitives == def->line_primitives
-			// && s_pipeline_defs[i].shadow_phase == def->shadow_phase
-            )
-		{
-			return &s_stagePipelines[i];
-		}
-	}
-
-
-	//VkPipeline pipeline;
-    vk_create_pipeline(def, &def->pipeline);
-    
-	s_pipeline_defs[s_numPipelines] = *def;
-	//s_pipeline_defs[s_numPipelines].pipeline = pipeline;
-	gapi_pipeline_t* handle = &s_stagePipelines[s_numPipelines];
-	handle->pipeline = def->pipeline;
-	handle->polygonOffset = def->polygon_offset ? qtrue : qfalse;
-
-    if (++s_numPipelines >= MAX_VK_PIPELINES)
-    {
-		ri.Error(ERR_DROP, "vk_create_pipeline: MAX_VK_PIPELINES hit\n");
-	}
-	return handle;
-}
-
-
-static void vk_create_std_pipeline(const struct Vk_Pipeline_Def* def, gapi_pipeline_t** pHandle)
-{
-    if (s_numStdPipelines >= MAX_STD_PIPELINES)
-    {
-        ri.Error(ERR_FATAL, "vk_create_std_pipeline: MAX_STD_PIPELINES hit\n");
-    }
-
-    gapi_pipeline_t* handle = &s_stdPipelines[s_numStdPipelines++];
-    vk_create_pipeline(def, &handle->pipeline);
-    handle->polygonOffset = def->polygon_offset ? qtrue : qfalse;
-    *pHandle = handle;
-}
-
-
-
-void create_pipelines_for_each_stage(shaderStage_t *pStage, shader_t* pShader)
-{
-    struct Vk_Pipeline_Def def;
-
-    def.line_primitives = 0;
-    def.shadow_phase = 0;
-    def.face_culling = pShader->cullType;
-    def.polygon_offset = pShader->polygonOffset;
-    def.state_bits = pStage->stateBits;
-
-    if (pStage->bundle[1].image[0] == NULL)
-        def.shader_type = ST_SINGLE_TEXTURE;
-    else if (pShader->multitextureEnv == GL_MODULATE)
-        def.shader_type = ST_MULTI_TEXURE_MUL;
-    else if (pShader->multitextureEnv == GL_ADD)
-        def.shader_type = ST_MULTI_TEXURE_ADD;
-    else
-        ri.Error(ERR_FATAL, "Vulkan: could not create pipelines for q3 shader '%s'\n", pShader->name);
-
-    def.clipping_plane = VK_FALSE;
-    def.mirror = VK_FALSE;
-    pStage->pipeline = vk_find_pipeline(&def);
-
-
-    def.clipping_plane = VK_TRUE;
-    def.mirror = VK_FALSE;
-    pStage->portalPipeline = vk_find_pipeline(&def);
-
-
-    def.clipping_plane = VK_TRUE;
-    def.mirror = VK_TRUE;
-    pStage->mirrorPipeline = vk_find_pipeline(&def);
-}
-
-
-
-void create_standard_pipelines(void)
-{
-      
-    ri.Printf(PRINT_ALL, " Create skybox pipeline \n");
-    {
-
-        struct Vk_Pipeline_Def def;
-        memset(&def, 0, sizeof(def));
-
-        def.shader_type = ST_SINGLE_TEXTURE;
-        def.state_bits = 0;
-        def.face_culling = CT_FRONT_SIDED;
-        def.polygon_offset = VK_FALSE;
-        def.clipping_plane = VK_FALSE;
-        def.mirror = VK_FALSE;
-        
-        vk_create_std_pipeline(&def, &g_stdPipelines.skybox_pipeline);
-    }
-
-    ri.Printf(PRINT_ALL, " Create Q3 stencil shadows pipeline \n");
-    {
-        {
-            struct Vk_Pipeline_Def def;
-            memset(&def, 0, sizeof(def));
-
-
-            def.polygon_offset = VK_FALSE;
-            def.state_bits = 0;
-            def.shader_type = ST_SINGLE_TEXTURE;
-            def.clipping_plane = VK_FALSE;
-            def.shadow_phase = SHADOWS_RENDERING_EDGES;
-
-            cullType_t cull_types[2] = {CT_FRONT_SIDED, CT_BACK_SIDED};
-            VkBool32 mirror_flags[2] = {VK_FALSE, VK_TRUE};
-
-            int i = 0; 
-            int j = 0;
-
-            for (i = 0; i < 2; i++)
-            {
-                def.face_culling = cull_types[i];
-                for (j = 0; j < 2; j++)
-                {
-                    def.mirror = mirror_flags[j];
-                    
-                    vk_create_std_pipeline(&def, &g_stdPipelines.shadow_volume_pipelines[i][j]);
-                }
-            }
-        }
-
-        {
-            struct Vk_Pipeline_Def def;
-            memset(&def, 0, sizeof(def));
-
-            def.face_culling = CT_FRONT_SIDED;
-            def.polygon_offset = VK_FALSE;
-            def.state_bits = GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO;
-            def.shader_type = ST_SINGLE_TEXTURE;
-            def.clipping_plane = VK_FALSE;
-            def.mirror = VK_FALSE;
-            def.shadow_phase = SHADOWS_RENDERING_FULLSCREEN_QUAD;
-            
-            vk_create_std_pipeline(&def, &g_stdPipelines.shadow_finish_pipeline);
-        }
-    }
-
-
-    ri.Printf(PRINT_ALL, " Create fog and dlights pipeline \n");
-    {
-        struct Vk_Pipeline_Def def;
-        memset(&def, 0, sizeof(def));
-
-
-        def.shader_type = ST_SINGLE_TEXTURE;
-        def.clipping_plane = VK_FALSE;
-        def.mirror = VK_FALSE;
-
-        unsigned int fog_state_bits[2] = {
-            GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_DEPTHFUNC_EQUAL,
-            GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA
-        };
-        unsigned int dlight_state_bits[2] = {
-            GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ONE | GLS_DEPTHFUNC_EQUAL,
-            GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE | GLS_DEPTHFUNC_EQUAL
-        };
-        
-        VkBool32 polygon_offset[2] = {VK_FALSE, VK_TRUE};
-
-        int i = 0, j = 0, k = 0;
-
-        for (i = 0; i < 2; i++)
-        {
-            unsigned fog_state = fog_state_bits[i];
-            unsigned dlight_state = dlight_state_bits[i];
-
-            for (j = 0; j < 3; j++)
-            {
-                def.face_culling = j; // cullType_t value
-
-                for ( k = 0; k < 2; k++)
-                {
-                    def.polygon_offset = polygon_offset[k];
-
-                    def.state_bits = fog_state;
-                    vk_create_std_pipeline(&def, &g_stdPipelines.fog_pipelines[i][j][k]);
-
-                    def.state_bits = dlight_state;
-                    vk_create_std_pipeline(&def, &g_stdPipelines.dlight_pipelines[i][j][k]);
-                }
-            }
-        }
-    }
-
-
-    // debug pipelines
-    ri.Printf(PRINT_ALL, " Create tris debug pipeline \n");
-    {
-        struct Vk_Pipeline_Def def;
-        memset(&def, 0, sizeof(def));
-
-        def.state_bits = GLS_POLYMODE_LINE | GLS_DEPTHMASK_TRUE;
-        vk_create_std_pipeline(&def, &g_stdPipelines.tris_debug_pipeline);
-    }
-
-    
-    ri.Printf(PRINT_ALL, " Create tris mirror debug pipeline \n");
-    {
-        struct Vk_Pipeline_Def def;
-        memset(&def, 0, sizeof(def));
-
-        def.state_bits = GLS_POLYMODE_LINE | GLS_DEPTHMASK_TRUE;
-        def.face_culling = CT_BACK_SIDED;
-        vk_create_std_pipeline(&def, &g_stdPipelines.tris_mirror_debug_pipeline);
-    }
-
-    ri.Printf(PRINT_ALL, " Create normals debug pipeline \n");
-    {
-        struct Vk_Pipeline_Def def;
-        memset(&def, 0, sizeof(def));
-
-        def.state_bits = GLS_DEPTHMASK_TRUE;
-        def.line_primitives = VK_TRUE;
-        vk_create_std_pipeline(&def, &g_stdPipelines.normals_debug_pipeline);
-    }
-
-
-    ri.Printf(PRINT_ALL, " Create surface debug pipeline \n");
-    {
-        struct Vk_Pipeline_Def def;
-        memset(&def, 0, sizeof(def));
-
-        def.state_bits = GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE;
-        vk_create_std_pipeline(&def, &g_stdPipelines.surface_debug_pipeline_solid);
-    }
-
-    ri.Printf(PRINT_ALL, " Create surface debug outline pipeline \n");
-    {
-        struct Vk_Pipeline_Def def;
-        memset(&def, 0, sizeof(def));
-
-        def.state_bits = GLS_POLYMODE_LINE | GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE;
-        def.line_primitives = VK_TRUE;
-        vk_create_std_pipeline(&def, &g_stdPipelines.surface_debug_pipeline_outline);
-    }
-    
-    ri.Printf(PRINT_ALL, " Create images debug pipeline \n");
-    {
-        struct Vk_Pipeline_Def def;
-        memset(&def, 0, sizeof(def));
-
-        def.state_bits = GLS_DEPTHTEST_DISABLE | GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
-        vk_create_std_pipeline(&def, &g_stdPipelines.images_debug_pipeline);
-    }
-}
-
-
-void vk_destroyShaderStagePipeline(void)
-{
-    // shader stage
-    qvkDeviceWaitIdle(vk.device);
-    uint32_t i;
-    for (i = 0; i < s_numPipelines; i++)
-    {
-		qvkDestroyPipeline(vk.device, s_pipeline_defs[i].pipeline, NULL);
-        memset(&s_pipeline_defs[i], 0, sizeof(struct Vk_Pipeline_Def));
-        memset(&s_stagePipelines[i], 0, sizeof(struct gapi_pipeline_s));
-    }
-    s_numPipelines = 0;
-}
-
-
-void vk_destroyGlobalStagePipeline(void)
-{
-    uint32_t i;
-
 	qvkDestroyDescriptorSetLayout(vk.device, vk.set_layout, NULL); 
     qvkDestroyPipelineLayout(vk.device, vk.pipeline_layout, NULL);
     // You don't need to explicitly clean up descriptor sets,
     // because they will be automaticall freed when the descripter pool
     // is destroyed.
    	qvkDestroyDescriptorPool(vk.device, vk.descriptor_pool, NULL);    
-    // 
-    for (i = 0; i < s_numStdPipelines; i++)
+}
+
+
+gapi_pipeline_t* gapi_createPipeline(const gapi_pipelineDesc_t* desc)
+{
+    gapi_pipeline_t* handle = (gapi_pipeline_t*) malloc(sizeof(gapi_pipeline_t));
+    if (handle == NULL)
     {
-        qvkDestroyPipeline(vk.device, s_stdPipelines[i].pipeline, NULL);
+        ri.Error(ERR_FATAL, "gapi_createPipeline: out of memory\n");
     }
-    memset(s_stdPipelines, 0, sizeof(s_stdPipelines));
-    s_numStdPipelines = 0;
-    memset(&g_stdPipelines, 0, sizeof(g_stdPipelines));
+
+    vk_create_pipeline(desc, &handle->pipeline);
+    handle->polygonOffset = desc->polygonOffset;
+    return handle;
+}
+
+
+void gapi_destroyPipeline(gapi_pipeline_t* pipeline)
+{
+    qvkDestroyPipeline(vk.device, pipeline->pipeline, NULL);
+    free(pipeline);
 }

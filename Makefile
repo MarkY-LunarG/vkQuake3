@@ -1823,7 +1823,8 @@ Q3VKOBJ = \
   $(B)/renderer_vulkan/vk_cmd.o \
   $(B)/renderer_vulkan/vk_image.o \
   $(B)/renderer_vulkan/vk_image_sampler2.o \
-  $(B)/renderer_vulkan/vk_pipelines.o \
+  $(B)/renderer_vulkan/tr_pipelines.o \
+  $(B)/renderer_vulkan/vk_pipeline.o \
   $(B)/renderer_vulkan/vk_frame.o \
   $(B)/renderer_vulkan/vk_swapchain.o \
   $(B)/renderer_vulkan/vk_screenshot.o \

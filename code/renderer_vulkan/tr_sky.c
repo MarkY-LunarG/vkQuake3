@@ -24,7 +24,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "tr_shade_geometry.h"
 
 #include "vk_instance.h"
-#include "vk_pipelines.h"
+#include "tr_pipelines.h"
 #include "vk_image.h"
 #include "tr_cvar.h"
 #include "matrix_multiplication.h"

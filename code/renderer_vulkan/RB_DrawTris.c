@@ -1,7 +1,7 @@
 #include "RB_DrawTris.h"
 #include "tr_globals.h"
 #include "tr_shade_geometry.h"
-#include "vk_pipelines.h"
+#include "tr_pipelines.h"
 #include "tr_backend.h"
 #include "ref_import.h"
 /*

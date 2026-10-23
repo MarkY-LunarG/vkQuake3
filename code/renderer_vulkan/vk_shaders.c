@@ -105,7 +105,7 @@ void vk_loadShaderModules(void)
 
 
 
-void vk_specifyShaderModule(const enum Vk_Shader_Type shader_type, const VkBool32 isClippingPlane,
+void vk_specifyShaderModule(const gapi_shaderType_t shader_type, const VkBool32 isClippingPlane,
                             VkShaderModule* vs, VkShaderModule* fs)
 {
     // Specify the shader module containing the shader code, and the function
@@ -118,14 +118,14 @@ void vk_specifyShaderModule(const enum Vk_Shader_Type shader_type, const VkBool3
     {
         switch(shader_type)
         {
-            case ST_MULTI_TEXURE_ADD:
-            case ST_MULTI_TEXURE_MUL:
+            case GAPI_SHADER_MULTI_TEXTURE_ADD:
+            case GAPI_SHADER_MULTI_TEXTURE_MUL:
             {
                 *vs = s_gShaderModules.multi_texture_clipping_plane_vs;
                 *fs = s_gShaderModules.multi_texture_fs;
             }break;
 
-            case ST_SINGLE_TEXTURE:
+            case GAPI_SHADER_SINGLE_TEXTURE:
             {
                 *vs = s_gShaderModules.single_texture_clipping_plane_vs;
                 *fs = s_gShaderModules.single_texture_fs;
@@ -136,14 +136,14 @@ void vk_specifyShaderModule(const enum Vk_Shader_Type shader_type, const VkBool3
     {
         switch(shader_type)
         {
-            case ST_MULTI_TEXURE_ADD:
-            case ST_MULTI_TEXURE_MUL:
+            case GAPI_SHADER_MULTI_TEXTURE_ADD:
+            case GAPI_SHADER_MULTI_TEXTURE_MUL:
             {
                 *vs = s_gShaderModules.multi_texture_vs;
                 *fs = s_gShaderModules.multi_texture_fs;
             }break;
 
-            case ST_SINGLE_TEXTURE:
+            case GAPI_SHADER_SINGLE_TEXTURE:
             {
                 *vs = s_gShaderModules.single_texture_vs;
                 *fs = s_gShaderModules.single_texture_fs;
