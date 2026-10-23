@@ -2,6 +2,7 @@
 #include "tr_cvar.h"
 #include "VKimpl.h"
 #include "vk_instance.h"
+#include "glConfig.h"
 
 
 /*
@@ -180,10 +181,15 @@ void vk_createSwapChain(VkDevice device, VkSurfaceKHR surface, VkSurfaceFormatKH
         VkExtent2D image_extent = vk.surface_caps.currentExtent;
         if ( (image_extent.width == 0xffffffff) && (image_extent.height == 0xffffffff))
         {
-            image_extent.width = MIN( vk.surface_caps.maxImageExtent.width, 
-                    MAX(vk.surface_caps.minImageExtent.width, 640u) );
-            image_extent.height = MIN(vk.surface_caps.maxImageExtent.height, 
-                    MAX(vk.surface_caps.minImageExtent.height, 480u) );
+            // The surface size comes from the swap chain (Wayland), so use
+            // the window size that the depth image and framebuffers also use.
+            int width, height;
+            R_GetWinResolution(&width, &height);
+
+            image_extent.width = MIN( vk.surface_caps.maxImageExtent.width,
+                    MAX(vk.surface_caps.minImageExtent.width, (uint32_t)width) );
+            image_extent.height = MIN(vk.surface_caps.maxImageExtent.height,
+                    MAX(vk.surface_caps.minImageExtent.height, (uint32_t)height) );
         }
 
         ri.Printf(PRINT_ALL, " Surface capabilities, image_extent.width: %d, image_extent.height: %d\n",
