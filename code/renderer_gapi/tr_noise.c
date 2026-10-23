@@ -43,16 +43,37 @@ static float GetNoiseValue( int x, int y, int z, int t )
 	return s_noise_table[index];
 }
 
+// The rand() of the C library is different on each platform (glibc, musl in
+// Emscripten, MSVC), and shaders with noise waveforms then look different.
+// The noise table uses this copy of the glibc generator (TYPE_3, 31 words)
+// with the seed 1001, so all platforms get the table of glibc.
+#define NOISE_RAND_MAX 2147483647
+#define NOISE_RAND_DISCARD 344		// glibc discards the first 310 values after the 34 seed values
+
 void R_NoiseInit( void )
 {
+	int32_t r[NOISE_RAND_DISCARD + 2 * NOISE_SIZE];
 	int i;
 
-	srand( 1001 );
+	r[0] = 1001;
+	for ( i = 1; i < 31; i++ )
+	{
+		int64_t v = ( 16807LL * r[i - 1] ) % NOISE_RAND_MAX;
+		if ( v < 0 )
+			v += NOISE_RAND_MAX;
+		r[i] = ( int32_t ) v;
+	}
+	for ( i = 31; i < 34; i++ )
+		r[i] = r[i - 31];
+	for ( i = 34; i < ( int ) ARRAY_LEN( r ); i++ )
+		r[i] = ( int32_t ) ( ( uint32_t ) r[i - 31] + ( uint32_t ) r[i - 3] );
 
 	for ( i = 0; i < NOISE_SIZE; i++ )
 	{
-		s_noise_table[i] = ( float ) ( ( ( rand() / ( float ) RAND_MAX ) * 2.0 - 1.0 ) );
-		s_noise_perm[i] = ( unsigned char ) ( rand() / ( float ) RAND_MAX * 255 );
+		const int a = ( int ) ( ( uint32_t ) r[NOISE_RAND_DISCARD + 2 * i] >> 1 );
+		const int b = ( int ) ( ( uint32_t ) r[NOISE_RAND_DISCARD + 2 * i + 1] >> 1 );
+		s_noise_table[i] = ( float ) ( ( ( a / ( float ) NOISE_RAND_MAX ) * 2.0 - 1.0 ) );
+		s_noise_perm[i] = ( unsigned char ) ( b / ( float ) NOISE_RAND_MAX * 255 );
 	}
 }
 
