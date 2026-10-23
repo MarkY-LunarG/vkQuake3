@@ -6,7 +6,8 @@
 
 void vk_shutdown(void);
 VkBool32 isVKinitialied(void);
-void vk_initialize(void);
+struct SDL_Window;
+void vk_initialize(struct SDL_Window* window);
 
 
 #endif

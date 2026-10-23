@@ -1828,7 +1828,9 @@ Q3VKOBJ = \
   $(B)/renderer_vulkan/vk_pipeline.o \
   $(B)/renderer_vulkan/vk_frame.o \
   $(B)/renderer_vulkan/vk_swapchain.o \
+  $(B)/renderer_vulkan/tr_screenshot.o \
   $(B)/renderer_vulkan/vk_screenshot.o \
+  $(B)/renderer_vulkan/vk_info.o \
   $(B)/renderer_vulkan/tr_shade_geometry.o \
   $(B)/renderer_vulkan/vk_geometry.o \
   $(B)/renderer_vulkan/vk_depth_attachment.o \
@@ -1865,7 +1867,8 @@ Q3VKOBJ = \
   $(B)/renderer_vulkan/ref_import.o \
   $(B)/renderer_vulkan/render_export.o \
   \
-  $(B)/renderer_vulkan/vk_create_window_SDL.o
+  $(B)/renderer_vulkan/sdl_window.o \
+  $(B)/renderer_vulkan/vk_surface_sdl.o
 
 ######################################################
 

@@ -15,6 +15,8 @@
 
 #include "../../qcommon/q_shared.h"
 
+struct SDL_Window;
+
 // A texture, its sampler state, and the API objects that bind it to a draw.
 typedef struct gapi_texture_s gapi_texture_t;
 
@@ -24,6 +26,10 @@ typedef struct gapi_pipeline_s gapi_pipeline_t;
 // The optional features of the graphics API and the device.
 typedef struct {
 	qboolean fillModeLine;		// pipelines can draw triangles as lines (GLS_POLYMODE_LINE)
+	char vendor[256];			// for glConfig.vendor_string
+	char renderer[256];			// for glConfig.renderer_string
+	char version[256];			// for glConfig.version_string
+	char extensions[BIG_INFO_STRING];	// for glConfig.extensions_string
 } gapi_caps_t;
 
 // The fragment shader of a pipeline.
@@ -95,6 +101,12 @@ typedef struct {
 	float depthBiasSlope;
 } gapi_draw_t;
 
+// The SDL window flags that the graphics API needs, for example SDL_WINDOW_VULKAN.
+uint32_t gapi_sdlWindowFlags(void);
+
+// The console command that prints information about the graphics API and the device.
+void gapi_printInfo(void);
+
 // Get the optional features. Call this after the graphics API starts.
 void gapi_getCaps(gapi_caps_t* caps);
 
@@ -119,6 +131,9 @@ void gapi_destroyTexture(gapi_texture_t* tex);
 
 // The console command that prints the texture memory use.
 void gapi_printMemoryInfo(void);
+
+// Read the pixels of the frame: width * height RGBA pixels, the top row first.
+void gapi_readPixels(unsigned char* rgba, uint32_t width, uint32_t height);
 
 // Set the vertex shader constants for the next draws.
 void gapi_setVertexConstants(const gapi_vertexConstants_t* constants);

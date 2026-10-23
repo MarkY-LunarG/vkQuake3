@@ -1,5 +1,5 @@
-#ifndef VK_SCREENSHOT_H_
-#define VK_SCREENSHOT_H_
+#ifndef TR_SCREENSHOT_H_
+#define TR_SCREENSHOT_H_
 
 void R_ScreenShotJPEG_f(void);
 void R_ScreenShot_f( void );

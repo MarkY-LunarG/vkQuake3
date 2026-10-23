@@ -14,8 +14,9 @@ IMPLEMENTATION SPECIFIC FUNCTIONS
 #define VK_NO_PROTOTYPES
 #include "vulkan/vulkan.h"
 
-void vk_createWindow(void);
-void vk_destroyWindow(void);
+struct SDL_Window;
+// Keep the window that the surface is made for.
+void vk_setWindowImpl(struct SDL_Window* window);
 
 void vk_getInstanceProcAddrImpl(void);
 
@@ -24,6 +25,5 @@ void vk_createSurfaceImpl(void);
 // If ppNames is NULL, only *pCount is set.
 void vk_getInstanceExtensionsImpl(uint32_t* pCount, const char** ppNames);
 
-void vk_minimizeWindow( void );
 
 #endif

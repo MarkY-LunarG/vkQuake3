@@ -21,12 +21,11 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
 
-// the window surface needs to be createdd right after the instance creation
-// because it can actually influence the physical device selection
+// The SDL window of the renderer. The graphics API gives the window flags
+// that it needs (gapi_sdlWindowFlags), and makes its surface from the window.
 
-#include "VKimpl.h"
-#include "vk_instance.h"
-
+#include "sdl_window.h"
+#include "ref_import.h"
 #include "tr_cvar.h"
 #include "icon_oa.h"
 #include "glConfig.h"
@@ -34,16 +33,12 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #ifdef _WIN32
     #include "../SDL2/include/SDL.h"
-    #include "../SDL2/include/SDL_vulkan.h"
 #else
 
   #ifdef USE_LOCAL_HEADERS
     #include "../SDL2/include/SDL.h"
-    #include "../SDL2/include/SDL_vulkan.h"
   #else
     #include <SDL2/SDL.h>
-    #include <SDL2/SDL_syswm.h>
-    #include <SDL2/SDL_vulkan.h>
   #endif
 
 #endif
@@ -56,7 +51,7 @@ static SDL_Window* window_sdl = NULL;
 static cvar_t* r_displayIndex;
 
 
-static void VKimp_DetectAvailableModes(void)
+static void R_DetectAvailableModes(void)
 {
 	int i, j;
 	char buf[ MAX_STRING_CHARS ] = { 0 };
@@ -144,17 +139,17 @@ static void VKimp_DetectAvailableModes(void)
 }
 
 
-static int VKimp_SetMode(int mode, qboolean fullscreen)
+static int R_SetMode(int mode, qboolean fullscreen, uint32_t windowFlags)
 {
 	SDL_DisplayMode desktopMode;
 
-	Uint32 flags = SDL_WINDOW_SHOWN | SDL_WINDOW_VULKAN;
+	Uint32 flags = SDL_WINDOW_SHOWN | windowFlags;
 
 	if ( r_allowResize->integer )
 		flags |= SDL_WINDOW_RESIZABLE;
 
 
-	ri.Printf(PRINT_ALL,  "\n...VKimp_SetMode()...\n");
+	ri.Printf(PRINT_ALL,  "\n...R_SetMode()...\n");
 
     SDL_GetNumVideoDisplays();
 
@@ -219,7 +214,7 @@ static int VKimp_SetMode(int mode, qboolean fullscreen)
 
 	if( window_sdl )
     {
-        VKimp_DetectAvailableModes();
+        R_DetectAvailableModes();
         return 0;
     }
 
@@ -230,9 +225,9 @@ static int VKimp_SetMode(int mode, qboolean fullscreen)
 
 
 /*
- * This routine is responsible for initializing the OS specific portions of Vulkan
+ * This routine is responsible for initializing the OS specific portions of the renderer
  */
-void vk_createWindow(void)
+SDL_Window* R_CreateWindow(uint32_t windowFlags)
 {
 	ri.Printf(PRINT_ALL, "\n...Creating window (using SDL2)...\n");
 
@@ -292,7 +287,7 @@ void vk_createWindow(void)
 		ri.Printf(PRINT_ALL, " Video is already initialized.\n");
 	}
 
-	if( 0 == VKimp_SetMode(r_mode->integer, r_fullscreen->integer) )
+	if( 0 == R_SetMode(r_mode->integer, r_fullscreen->integer, windowFlags) )
 	{
 		goto success;
 	}
@@ -301,13 +296,13 @@ void vk_createWindow(void)
 		ri.Printf(PRINT_ALL, " Setting r_mode=%d, r_fullscreen=%d failed, falling back on r_mode=%d\n",
 				r_mode->integer, r_fullscreen->integer, 3 );
 
-		if( 0 == VKimp_SetMode(3, qfalse) )
+		if( 0 == R_SetMode(3, qfalse, windowFlags) )
 		{
 			goto success;
 		}
 		else
 		{
-			ri.Error(ERR_FATAL, "VKimp_Init() - could not load Vulkan subsystem: %s", SDL_GetError());
+			ri.Error(ERR_FATAL, "R_CreateWindow() - could not create a window: %s", SDL_GetError());
 		}
 	}
 
@@ -320,29 +315,12 @@ success:
 
 	// This depends on SDL_INIT_VIDEO, hence having it here
 	ri.IN_Init(window_sdl);
+
+	return window_sdl;
 }
 
 
-void vk_getInstanceProcAddrImpl(void)
-{
-	ri.Printf(PRINT_ALL, " *** Vulkan Initialization ***\n");
-    int code = SDL_Vulkan_LoadLibrary(NULL);
-    if (code) {
-        ri.Error(ERR_FATAL, "Failed to load Vulkan library (code %d): %s", code, SDL_GetError());
-    }
-    // Create the window 
-
-    qvkGetInstanceProcAddr = (PFN_vkGetInstanceProcAddr) SDL_Vulkan_GetVkGetInstanceProcAddr();
-    if( qvkGetInstanceProcAddr == NULL)
-    {
-        ri.Error(ERR_FATAL, "Failed to find entrypoint vkGetInstanceProcAddr\n"); 
-    }
-    
-    ri.Printf(PRINT_ALL,  " Get instance proc address. (using SDL2)\n");
-}
-
-
-void vk_destroyWindow( void )
+void R_DestroyWindow( void )
 {
 	ri.Printf(PRINT_ALL, " Destroy Window Subsystem.\n");
 
@@ -354,44 +332,17 @@ void vk_destroyWindow( void )
 }
 
 
-void vk_getInstanceExtensionsImpl(uint32_t* pCount, const char** ppNames)
-{
-    unsigned int count = *pCount;
-
-    if (!SDL_Vulkan_GetInstanceExtensions(window_sdl, &count, ppNames))
-    {
-        ri.Error(ERR_FATAL, "SDL_Vulkan_GetInstanceExtensions(): %s\n", SDL_GetError());
-    }
-
-    *pCount = count;
-}
-
-
-void vk_createSurfaceImpl(void)
-{
-    ri.Printf(PRINT_ALL, " Create Surface: vk.surface.\n");
-
-    if(!SDL_Vulkan_CreateSurface(window_sdl, vk.instance, &vk.surface))
-    {
-        vk.surface = VK_NULL_HANDLE;
-        ri.Error(ERR_FATAL, "SDL_Vulkan_CreateSurface(): %s\n", SDL_GetError());
-    }
-}
-
-
-
-
 /*
 ===============
 Minimize the game so that user is back at the desktop
 ===============
 */
-void vk_minimizeWindow( void )
+void R_MinimizeWindow( void )
 {
-    VkBool32 toggleWorked = 1;
+    qboolean toggleWorked = qtrue;
     ri.Printf( PRINT_ALL, " Minimizing Window (SDL). \n");
 
-	VkBool32 isWinFullscreen = ( SDL_GetWindowFlags( window_sdl ) & SDL_WINDOW_FULLSCREEN );
+	qboolean isWinFullscreen = ( SDL_GetWindowFlags( window_sdl ) & SDL_WINDOW_FULLSCREEN ) ? qtrue : qfalse;
     
 
     if( isWinFullscreen )

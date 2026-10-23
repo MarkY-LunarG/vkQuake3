@@ -14,10 +14,10 @@
 // vk_instance should be small
 // 
 // After calling this function we get fully functional vulkan subsystem.
-void vk_initialize(void)
+void vk_initialize(struct SDL_Window* window)
 {
     // This function is responsible for initializing a valid Vulkan subsystem.
-    vk_createWindow();
+    vk_setWindowImpl(window);
 
     vk_getProcAddress(); 
  
@@ -86,12 +86,6 @@ VkBool32 isVKinitialied(void)
 void gapi_waitIdle(void)
 {
     qvkDeviceWaitIdle(vk.device);
-}
-
-
-void gapi_getCaps(gapi_caps_t* caps)
-{
-    caps->fillModeLine = vk.features.fillModeNonSolid ? qtrue : qfalse;
 }
 
 // Shutdown vulkan subsystem by releasing resources acquired by Vk_Instance.

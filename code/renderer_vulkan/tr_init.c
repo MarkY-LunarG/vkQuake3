@@ -28,7 +28,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 
 #include "vk_init.h"
 
-#include "vk_screenshot.h"
+#include "tr_screenshot.h"
 #include "tr_shade_geometry.h"
 #include "vk_geometry.h"
 #include "tr_pipelines.h"
@@ -37,6 +37,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "tr_fog.h"
 #include "tr_backend.h"
 #include "glConfig.h"
+#include "sdl_window.h"
 #include "ref_import.h"
 
 extern void RE_ClearScene( void );
@@ -106,8 +107,9 @@ void R_Init( void )
 	ri.Cmd_AddCommand( "shaderlist", R_ShaderList_f );
 	ri.Cmd_AddCommand( "skinlist", R_SkinList_f );
 
-    ri.Cmd_AddCommand( "vkinfo", vulkanInfo_f );
-    ri.Cmd_AddCommand( "minimize", vk_minimizeWindow );
+    ri.Cmd_AddCommand( "vkinfo", gapi_printInfo );
+    ri.Cmd_AddCommand( "gapiInfo", gapi_printInfo );
+    ri.Cmd_AddCommand( "minimize", R_MinimizeWindow );
 
     ri.Cmd_AddCommand( "pipelineList", R_PipelineList_f );
 
@@ -122,10 +124,12 @@ void R_Init( void )
     // VULKAN
 	if ( !isVKinitialied() )
 	{
-		vk_initialize();
-        
+		vk_initialize(R_CreateWindow(gapi_sdlWindowFlags()));
+
+        R_glConfigSetAPIInfo();
+
         // print info
-        vulkanInfo_f();
+        gapi_printInfo();
 	}
 
 
@@ -161,6 +165,7 @@ void RE_Shutdown( qboolean destroyWindow )
     ri.Cmd_RemoveCommand("minimize");
 	
 	ri.Cmd_RemoveCommand("vkinfo");
+	ri.Cmd_RemoveCommand("gapiInfo");
     ri.Cmd_RemoveCommand("pipelineList");
     ri.Cmd_RemoveCommand("gpuMem");
     ri.Cmd_RemoveCommand("printOR");
@@ -189,7 +194,7 @@ void RE_Shutdown( qboolean destroyWindow )
     if (destroyWindow)
     {
         vk_shutdown();
-        vk_destroyWindow();
+        R_DestroyWindow();
         
         // It is cleared not for renderer_vulkan,
         // but fot rendergl1, renderergl2 to create the window

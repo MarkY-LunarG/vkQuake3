@@ -12,5 +12,5 @@ void R_GetGlConfig(glconfig_t * const pOut);
 void R_DisplayResolutionList_f(void);
 void R_InitDisplayResolution( void );
 
-void vulkanInfo_f( void );
+void R_glConfigSetAPIInfo(void);
 #endif
