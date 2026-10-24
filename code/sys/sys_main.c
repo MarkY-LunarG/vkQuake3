@@ -35,6 +35,16 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include <emscripten/emscripten.h>
 #endif
 
+#ifdef Q3_JSPI
+// JSPI can suspend only in an export that is wrapped with
+// WebAssembly.promising, such as main. The WebGPU code suspends in a frame
+// (the pixels of a screenshot or a video frame), so the frame loop stays in
+// main, and this function waits for the next animation frame.
+EM_ASYNC_JS( void, Sys_WaitForAnimationFrame, (void), {
+	await new Promise( ( resolve ) => requestAnimationFrame( resolve ) );
+} );
+#endif
+
 #ifndef DEDICATED
 #ifdef USE_LOCAL_HEADERS
 #	include "../SDL2/include/SDL.h"
@@ -766,7 +776,13 @@ int main( int argc, char **argv )
 	signal( SIGTERM, Sys_SigHandler );
 	signal( SIGINT, Sys_SigHandler );
 
-#ifdef __EMSCRIPTEN__
+#if defined(Q3_JSPI)
+	while( 1 )
+	{
+		Com_Frame( );
+		Sys_WaitForAnimationFrame( );
+	}
+#elif defined(__EMSCRIPTEN__)
 	// The browser calls Com_Frame for each frame.
 	emscripten_set_main_loop( Com_Frame, 0, 1 );
 #else

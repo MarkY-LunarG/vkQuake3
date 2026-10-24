@@ -430,13 +430,28 @@ ifeq ($(PLATFORM),emscripten)
   CLIENT_LIBS=-sUSE_SDL=2
   RENDERER_LIBS=
 
-  # ASYNCIFY: wgpuInstanceWaitAny waits for the WebGPU adapter and device at
-  # startup, and for the pixels of a screenshot.
+  # wgpuInstanceWaitAny waits for the WebGPU adapter and device at startup,
+  # and for the pixels of a screenshot. EMSCRIPTEN_ASYNC selects how:
+  #   asyncify  Works in all browsers with WebGPU, but makes the code larger.
+  #   jspi      JavaScript Promise Integration: smaller and faster code, but
+  #             only in browsers with JSPI.
+  EMSCRIPTEN_ASYNC ?= asyncify
+  ifeq ($(EMSCRIPTEN_ASYNC),jspi)
+    # JSPI cannot suspend through JavaScript frames. The setjmp and longjmp
+    # of Com_Error must then be WebAssembly code, not JavaScript invoke_*
+    # functions, for compiling and for linking.
+    # Q3_JSPI: sys_main.c keeps the frame loop in main (see there).
+    BASE_CFLAGS += -sSUPPORT_LONGJMP=wasm -DQ3_JSPI
+    EMSCRIPTEN_ASYNC_FLAGS = -sJSPI=1 -sSUPPORT_LONGJMP=wasm
+  else
+    EMSCRIPTEN_ASYNC_FLAGS = -sASYNCIFY=1
+  endif
+
   CLIENT_LDFLAGS += \
     -sINITIAL_MEMORY=256MB \
     -sALLOW_MEMORY_GROWTH=1 \
     -sSTACK_SIZE=5MB \
-    -sASYNCIFY=1 \
+    $(EMSCRIPTEN_ASYNC_FLAGS) \
     -sEXIT_RUNTIME=1 \
     -sEXPORT_ES6=1 \
     -sEXPORT_NAME=$(CLIENTBIN) \

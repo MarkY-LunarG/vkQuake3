@@ -62,12 +62,15 @@ if (execURL) {
 const config = await fetch('./ioquake3_webgpu-config.json').then(r => r.json());
 const createModule = (await import('./ioquake3_webgpu.wasm32.js')).default;
 
-window.q3 = await createModule({
+await createModule({
     canvas: canvas,
     arguments: args,
     print: (text) => console.log(text),
     printErr: (text) => console.warn(text),
     preRun: [async (module) => {
+        // Not the result of createModule: with JSPI, main does not return,
+        // and the promise of createModule does not resolve.
+        window.q3 = module;
         module.addRunDependency('game-files');
         try {
             const files = config.baseq3.files;

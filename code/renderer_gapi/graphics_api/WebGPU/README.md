@@ -81,6 +81,17 @@ source <emsdk>/emsdk_env.sh
 emmake make PLATFORM=emscripten
 ```
 
+The WebGPU code waits for the device at startup and for the pixels of a screenshot.
+`EMSCRIPTEN_ASYNC` selects how the browser build waits:
+
+| Value | `.wasm` size | Browsers |
+|---|---|---|
+| `asyncify` (default) | 4.9 MB | All browsers with WebGPU |
+| `jspi` | 2.0 MB | Browsers with JavaScript Promise Integration (tested in Chrome 156) |
+
+For example, `emmake make PLATFORM=emscripten EMSCRIPTEN_ASYNC=jspi`.
+Use another `BUILD_DIR` for each value, because the object files are not the same.
+
 The output in `build/release-emscripten-wasm32` is `ioquake3_webgpu.wasm32.js`,
 `ioquake3_webgpu.wasm32.wasm`, `ioquake3_webgpu.html`, and `ioquake3_webgpu-config.json`.
 The game data is not part of the build.
