@@ -86,10 +86,10 @@ The WebGPU code waits for the device at startup and for the pixels of a screensh
 
 | Value | `.wasm` size | Browsers |
 |---|---|---|
-| `asyncify` (default) | 4.9 MB | All browsers with WebGPU (tested in Chrome 156 and Firefox 158) |
-| `jspi` | 2.0 MB | Browsers with JavaScript Promise Integration (tested in Chrome 156 and Firefox 158) |
+| `jspi` (default) | 2.0 MB | Browsers with JavaScript Promise Integration (tested in Chrome 156 and Firefox 158) |
+| `asyncify` | 4.9 MB | All browsers with WebGPU (tested in Chrome 156 and Firefox 158) |
 
-For example, `emmake make PLATFORM=emscripten EMSCRIPTEN_ASYNC=jspi`.
+For a browser without JSPI, use `emmake make PLATFORM=emscripten EMSCRIPTEN_ASYNC=asyncify`.
 Use another `BUILD_DIR` for each value, because the object files are not the same.
 
 The output in `build/release-emscripten-wasm32` is `ioquake3_webgpu.wasm32.js`,

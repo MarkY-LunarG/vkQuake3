@@ -432,10 +432,10 @@ ifeq ($(PLATFORM),emscripten)
 
   # wgpuInstanceWaitAny waits for the WebGPU adapter and device at startup,
   # and for the pixels of a screenshot. EMSCRIPTEN_ASYNC selects how:
+  #   jspi      JavaScript Promise Integration (the default): smaller and
+  #             faster code, but only in browsers with JSPI.
   #   asyncify  Works in all browsers with WebGPU, but makes the code larger.
-  #   jspi      JavaScript Promise Integration: smaller and faster code, but
-  #             only in browsers with JSPI.
-  EMSCRIPTEN_ASYNC ?= asyncify
+  EMSCRIPTEN_ASYNC ?= jspi
   ifeq ($(EMSCRIPTEN_ASYNC),jspi)
     # JSPI cannot suspend through JavaScript frames. The setjmp and longjmp
     # of Com_Error must then be WebAssembly code, not JavaScript invoke_*
