@@ -41,6 +41,13 @@ static SDL_Joystick *stick = NULL;
 static qboolean mouseAvailable = qfalse;
 static qboolean mouseActive = qfalse;
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/html5.h>
+
+// The pointer lock of the browser at the last frame.
+static qboolean in_pointerLocked = qfalse;
+#endif
+
 static cvar_t *in_mouse             = NULL;
 static cvar_t *in_nograb;
 
@@ -1165,9 +1172,43 @@ static void IN_ProcessEvents( void )
 IN_Frame
 ===============
 */
+#ifdef __EMSCRIPTEN__
+/*
+===============
+IN_CheckPointerLock
+
+The browser uses the first Escape to end the pointer lock, and the page does
+not get that key. If the pointer lock ends while the mouse is active, give the
+game the Escape key, so that one Escape opens the menu. The browser also ends
+the pointer lock when the page loses the focus; the menu then opens too.
+===============
+*/
+static void IN_CheckPointerLock( void )
+{
+	EmscriptenPointerlockChangeEvent status;
+	qboolean locked = qfalse;
+
+	if( emscripten_get_pointerlock_status( &status ) == EMSCRIPTEN_RESULT_SUCCESS )
+		locked = status.isActive ? qtrue : qfalse;
+
+	// in_nograb 1 ends the pointer lock on purpose.
+	if( mouseActive && in_pointerLocked && !locked && !in_nograb->integer )
+	{
+		Com_QueueEvent( in_eventTime, SE_KEY, K_ESCAPE, qtrue, 0, NULL );
+		Com_QueueEvent( in_eventTime, SE_KEY, K_ESCAPE, qfalse, 0, NULL );
+	}
+
+	in_pointerLocked = locked;
+}
+#endif
+
 void IN_Frame( void )
 {
 	qboolean loading;
+
+#ifdef __EMSCRIPTEN__
+	IN_CheckPointerLock( );
+#endif
 
 	IN_JoyMove( );
 

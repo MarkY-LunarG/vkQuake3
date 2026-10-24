@@ -112,8 +112,7 @@ The page loads the files in `ioquake3_webgpu-config.json` from its data URL, whi
    Chrome 156 on Linux gives a WebGPU adapter only with Vulkan, for example when it starts with
    `--enable-features=Vulkan`.
 3. Click the canvas to capture the mouse.
-   The first Escape releases the mouse (the browser uses this key), and the second Escape opens the
-   game menu.
+   Escape releases the mouse and opens the game menu.
    Add game arguments with `args`, and write `+` as `%2b`, for example
    `&args=%2bdevmap%20q3dm17`.
 
