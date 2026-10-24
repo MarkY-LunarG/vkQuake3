@@ -42,7 +42,8 @@ if (window.location.protocol === 'file:') {
     throw new Error(status.textContent);
 }
 if (!navigator.gpu) {
-    status.textContent = 'This browser has no WebGPU.';
+    // Firefox 158 on Linux has WebGPU only with this preference.
+    status.textContent = 'This browser has no WebGPU. In Firefox, set dom.webgpu.enabled to true in about:config.';
     throw new Error(status.textContent);
 }
 
