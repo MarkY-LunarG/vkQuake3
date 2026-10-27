@@ -51,11 +51,9 @@ uint32_t gapi_sdlWindowFlags(void)
     // SDL_Metal_CreateView works without it.
     return 0;
 #elif !defined(_WIN32) && !defined(__EMSCRIPTEN__)
-    // On Wayland and X11, Dawn presents with a Vulkan swapchain. Without this
-    // flag, the SDL Wayland driver expects to attach the buffers of the
-    // window itself. With a fractional display scale, it then sends a resize
-    // event with a smaller size after each vid_restart, and the window becomes
-    // smaller each time.
+    // On Wayland and X11, Dawn presents with a Vulkan swapchain, as the Vulkan
+    // backend does. The flag tells SDL that a Vulkan swapchain attaches the
+    // buffers of the window.
     return SDL_WINDOW_VULKAN;
 #else
     return 0;

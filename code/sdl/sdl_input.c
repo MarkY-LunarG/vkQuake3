@@ -1136,6 +1136,16 @@ static void IN_ProcessEvents( void )
 								break;
 							}
 
+							// The user cannot resize a window without SDL_WINDOW_RESIZABLE
+							// (r_allowResize 0). On Wayland with a fractional display scale,
+							// the compositor can make such a window smaller after it opens.
+							// A vid_restart for that size then makes the next window smaller
+							// again, and the window becomes smaller each time.
+							if( !( SDL_GetWindowFlags( SDL_window ) & SDL_WINDOW_RESIZABLE ) )
+							{
+								break;
+							}
+
 							// check if size actually changed
 							if( cls.glconfig.vidWidth == width && cls.glconfig.vidHeight == height )
 							{
