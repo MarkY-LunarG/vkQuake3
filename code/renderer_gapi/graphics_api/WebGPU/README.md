@@ -13,6 +13,7 @@ Then build the game with `BUILD_RENDERER_WEBGPU=1`.
 The build copies the Dawn library next to the renderer.
 
 Start the game with `+set cl_renderer webgpu`.
+See [Run](#run).
 
 ### Linux
 
@@ -23,6 +24,23 @@ The Wayland and X11 development packages are necessary.
 scripts/build_dawn.sh
 make BUILD_RENDERER_WEBGPU=1
 ```
+
+This build uses the libraries and the SDL headers in `code/`.
+If the compiler cannot find `opus/opusfile.h`, add `USE_CODEC_OPUS=0`.
+
+To use the libraries of the system, add `USE_INTERNAL_LIBS=0`.
+On Fedora, install these packages first:
+
+```sh
+sudo dnf install sdl2-compat-devel libogg-devel libvorbis-devel zlib-ng-compat-devel \
+    libjpeg-turbo-devel openal-soft-devel opusfile-devel
+make BUILD_RENDERER_WEBGPU=1 USE_INTERNAL_LIBS=0
+```
+
+The Makefile does not record these settings in the object files.
+When you change `USE_INTERNAL_LIBS`, use `make clean` or another `BUILD_DIR`.
+If you do not, the build can link objects of the two settings.
+For example, the game then shows `Wrong JPEG library version` and the textures do not load.
 
 ### Windows
 
@@ -116,6 +134,39 @@ The page loads the files in `ioquake3_webgpu-config.json` from its data URL, whi
    Add game arguments with `args`, and write `+` as `%2b`, for example
    `&args=%2bdevmap%20q3dm17`.
 
+## Run
+
+The game data is not part of the build.
+`fs_basepath` is the directory that has `baseq3/` with your `pak0.pk3` to `pak8.pk3`.
+
+```sh
+build/release-linux-x86_64/ioquake3.x86_64 +set fs_basepath "<Quake 3 directory>" \
+    +set cl_renderer webgpu
+```
+
+Useful settings:
+
+| Setting | Effect |
+|---|---|
+| `+set fs_homepath <directory>` | Keep the configuration and the screenshots in this directory, not in `~/.q3a` |
+| `+set r_fullscreen 0 +set r_mode 3` | Use a 640 x 480 window |
+| `+set timedemo 1 +demo four` | Play the demo as fast as possible, then print the frame rate |
+| `+set r_apiCoverage heavy` | Use more of the WebGPU API (see [API coverage](#api-coverage)) |
+| `SDL_VIDEODRIVER=x11` (environment) | Use X11 (XWayland) and not Wayland |
+
+On Linux, the renderer tries Wayland first, then X11.
+`r_sdlDriver` selects one driver.
+
+The `quit` command stops the game.
+SIGTERM and SIGINT (Ctrl+C) also stop it: the game quits at the start of the next frame.
+A second SIGTERM or SIGINT stops the process immediately.
+
+The game writes `ioq3.pid` into the game directory of `fs_homepath`, and removes it at a normal
+exit.
+If the file is there at startup, an "Abnormal Exit" dialog asks if the game must start with
+safe video settings.
+The game waits until you answer.
+
 ## Test cvars
 
 | Cvar | Effect |
@@ -150,6 +201,46 @@ With `heavy`, the backend does these steps:
 - `gapiInfo` and `gpuMem` also print the texture, attachment, and buffer memory.
   The texture and buffer getters (`wgpuTextureGet*`, `wgpuBufferGetSize`, `wgpuBufferGetUsage`)
   give the numbers.
+
+### Check the heavy path
+
+The two paths must draw the same frames.
+Take a screenshot at the same frame of a demo with each value, and compare the files:
+
+```sh
+for mode in default heavy; do
+    build/release-linux-x86_64/ioquake3.x86_64 +set fs_basepath "<Quake 3 directory>" \
+        +set cl_renderer webgpu +set r_apiCoverage $mode +set r_webgpuFatalErrors 1 \
+        +set timedemo 1 +demo four +wait 600 +screenshot cov_$mode +wait 10 +quit
+done
+md5sum ~/.q3a/baseq3/screenshots/cov_*.tga
+```
+
+The screenshot runs in the frame after the command, thus `+wait 10` comes before `+quit`.
+
+### More API coverage
+
+The calls in this table are not in a capture of `demo four` with `heavy`.
+Each item has a use in a real renderer.
+Put a new item behind `wg.heavyCoverage`, keep the frames the same, and add it to the list above.
+
+| Item | Calls | Size | Work |
+|---|---|---|---|
+| Debug markers | `wgpuRenderPassEncoderInsertDebugMarker`, `wgpuCommandEncoderInsertDebugMarker` | small | Put the shader name of each draw (`gapi_draw`) or of each clear into a marker |
+| Error scopes | `wgpuDevicePushErrorScope`, `wgpuDevicePopErrorScope` | small | Put a scope around the creation of a shader module and of a pipeline, and print the name of the object that failed |
+| Shader compilation messages | `wgpuShaderModuleGetCompilationInfo` | small | Print the WGSL warnings after `wgpu_createPipelineResources` makes the modules |
+| Adapter information | `wgpuAdapterGetLimits`, `wgpuAdapterGetFeatures` | small | Print the adapter limits and features in `gapiInfo`, next to the device values |
+| Work-done notification | `wgpuQueueOnSubmittedWorkDone` | small | Wait for the submitted work before the map of the screenshot buffer (`wgpu_draw.c`) |
+| Device-lost future | `wgpuDeviceGetLostFuture` | small | Check the future with `wgpuInstanceWaitAny` and a timeout of 0 at the start of each frame |
+| Mapped-range copies | `wgpuBufferGetMapState`, `wgpuBufferReadMappedRange` | small | Copy the screenshot pixels with `wgpuBufferReadMappedRange`, not with `wgpuBufferGetConstMappedRange` |
+| Buffer destruction | `wgpuBufferDestroy` | small | Destroy the geometry buffers at shutdown, before the release |
+| Texture labels | `wgpuTextureSetLabel` | small | Give the image name to a texture when `gapi_uploadTexture` puts a new image into it |
+| GPU frame time | `wgpuDeviceCreateQuerySet` (timestamp), `wgpuCommandEncoderWriteTimestamp`, `wgpuCommandEncoderResolveQuerySet` | medium | Needs the `TimestampQuery` feature. Read the result some frames later and print it with `r_speeds` |
+| Light flares | `wgpuDeviceCreateQuerySet` (occlusion), `wgpuRenderPassEncoderBeginOcclusionQuery`, `wgpuRenderPassEncoderEndOcclusionQuery`, `wgpuCommandEncoderResolveQuerySet`, `wgpuQuerySetDestroy` | large | `RB_RenderFlares` has no caller, and `tr_flares.c` reads the depth with `glReadPixels`. Replace the depth read with an occlusion query for each flare, and use the result of an earlier frame |
+| GPU mipmaps | `wgpuDeviceCreateComputePipeline`, `wgpuDeviceCreateComputePipelineAsync`, the `wgpuComputePassEncoder*` calls | medium | Make the mipmap levels with a compute pass, not on the CPU |
+
+Render bundles and indirect draws are not in the table.
+Q3 makes its geometry on the CPU for each frame, thus these calls have no real use in Q3.
 
 ## Backend
 
