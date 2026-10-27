@@ -16,6 +16,18 @@
 #else
   #ifdef USE_LOCAL_HEADERS
     #include "../../../SDL2/include/SDL.h"
+    #ifndef __APPLE__
+        // The local SDL_config.h is the macOS configuration. SDL_syswm.h
+        // declares the Wayland and X11 window handles only when
+        // SDL_VIDEO_DRIVER_WAYLAND and SDL_VIDEO_DRIVER_X11 are defined.
+        #undef SDL_VIDEO_DRIVER_COCOA
+        #ifndef SDL_VIDEO_DRIVER_WAYLAND
+            #define SDL_VIDEO_DRIVER_WAYLAND 1
+        #endif
+        #ifndef SDL_VIDEO_DRIVER_X11
+            #define SDL_VIDEO_DRIVER_X11 1
+        #endif
+    #endif
     #include "../../../SDL2/include/SDL_syswm.h"
     #include "../../../SDL2/include/SDL_metal.h"
   #else
@@ -34,9 +46,18 @@ uint32_t gapi_sdlWindowFlags(void)
 {
 #if defined(__APPLE__) && SDL_VERSION_ATLEAST(2, 0, 14)
     return SDL_WINDOW_METAL;
-#else
+#elif defined(__APPLE__)
     // SDL 2.0.12 (code/libs/macosx) has no SDL_WINDOW_METAL flag.
     // SDL_Metal_CreateView works without it.
+    return 0;
+#elif !defined(_WIN32) && !defined(__EMSCRIPTEN__)
+    // On Wayland and X11, Dawn presents with a Vulkan swapchain. Without this
+    // flag, the SDL Wayland driver expects to attach the buffers of the
+    // window itself. With a fractional display scale, it then sends a resize
+    // event with a smaller size after each vid_restart, and the window becomes
+    // smaller each time.
+    return SDL_WINDOW_VULKAN;
+#else
     return 0;
 #endif
 }
