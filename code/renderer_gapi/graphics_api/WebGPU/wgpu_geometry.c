@@ -136,6 +136,20 @@ void wgpu_createGeometryResources(void)
 
 void wgpu_releaseGeometryResources(void)
 {
+    // r_apiCoverage heavy: free the GPU memory now, and not when the last
+    // reference goes. This is at shutdown only. wgpu_releaseConstants also runs
+    // in a frame, when the commands of the frame can use the old buffer.
+    if (wg.heavyCoverage)
+    {
+        const WGPUBuffer buffers[] = { s_geo.vertexBuffer, s_geo.indexBuffer, s_geo.constantsBuffer };
+        size_t i;
+        for (i = 0; i < ARRAY_LEN(buffers); i++)
+        {
+            if (buffers[i])
+                wgpuBufferDestroy(buffers[i]);
+        }
+    }
+
     wgpu_releaseConstants();
     if (s_geo.vertexBuffer)
         wgpuBufferRelease(s_geo.vertexBuffer);

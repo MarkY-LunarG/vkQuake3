@@ -150,6 +150,15 @@ void gapi_uploadTexture(gapi_texture_t* tex, const unsigned char* rgba, uint32_t
 }
 
 
+void gapi_setTextureName(gapi_texture_t* tex, const char* name)
+{
+    // The default path sets no label. gapi_createTexture has no name for the
+    // descriptor.
+    if (wg.heavyCoverage)
+        wgpuTextureSetLabel(tex->texture, wgpu_stringView(name));
+}
+
+
 void gapi_destroyTexture(gapi_texture_t* tex)
 {
     // WebGPU keeps the texture until the submitted work that uses it is done.

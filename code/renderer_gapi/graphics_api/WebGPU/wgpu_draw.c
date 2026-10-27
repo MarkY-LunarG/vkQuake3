@@ -208,6 +208,9 @@ void gapi_clearColor(const gapi_rect_t* rect, const float color[4])
     if (!wg.frameActive)
         return;
 
+    if (wg.heavyCoverage)
+        wgpuRenderPassEncoderInsertDebugMarker(wg.pass, wgpu_stringView("clear color"));
+
     WGPUColor constant = { color[0], color[1], color[2], color[3] };
     wgpuRenderPassEncoderSetPipeline(wg.pass, s_clearPipelines[CLEAR_COLOR]);
     wgpuRenderPassEncoderSetBlendConstant(wg.pass, &constant);
@@ -219,6 +222,10 @@ void gapi_clearDepthStencil(const gapi_rect_t* rect, qboolean stencil)
 {
     if (!wg.frameActive)
         return;
+
+    if (wg.heavyCoverage)
+        wgpuRenderPassEncoderInsertDebugMarker(wg.pass,
+                wgpu_stringView(stencil ? "clear depth and stencil" : "clear depth"));
 
     wgpuRenderPassEncoderSetPipeline(wg.pass, s_clearPipelines[stencil ? CLEAR_DEPTH_STENCIL : CLEAR_DEPTH]);
     wgpuRenderPassEncoderSetStencilReference(wg.pass, 0);
@@ -318,6 +325,30 @@ static void wgpu_onMapped(WGPUMapAsyncStatus status, WGPUStringView message, voi
 }
 
 
+static void wgpu_onWorkDone(WGPUQueueWorkDoneStatus status, WGPUStringView message, void* userdata1, void* userdata2)
+{
+    *(WGPUQueueWorkDoneStatus*)userdata1 = status;
+}
+
+
+// r_apiCoverage heavy: wait until the GPU did the copy of the frame. The map
+// that follows also waits for the copy, so this step does not change the result.
+static void wgpu_waitForSubmittedWork(void)
+{
+    WGPUQueueWorkDoneStatus status = WGPUQueueWorkDoneStatus_Error;
+    WGPUQueueWorkDoneCallbackInfo callback = WGPU_QUEUE_WORK_DONE_CALLBACK_INFO_INIT;
+    callback.mode = WGPUCallbackMode_WaitAnyOnly;
+    callback.callback = wgpu_onWorkDone;
+    callback.userdata1 = &status;
+    WGPUFutureWaitInfo wait = WGPU_FUTURE_WAIT_INFO_INIT;
+    wait.future = wgpuQueueOnSubmittedWorkDone(wg.queue, callback);
+    wgpuInstanceWaitAny(wg.instance, 1, &wait, UINT64_MAX);
+
+    if (status != WGPUQueueWorkDoneStatus_Success)
+        ri.Printf(PRINT_WARNING, "WebGPU: the submitted work did not complete (%d)\n", (int)status);
+}
+
+
 void gapi_readPixels(unsigned char* rgba, uint32_t width, uint32_t height)
 {
     memset(rgba, 0, (size_t)width * height * 4);
@@ -353,6 +384,9 @@ void gapi_readPixels(unsigned char* rgba, uint32_t width, uint32_t height)
     wgpuCommandBufferRelease(commands);
     wgpuCommandEncoderRelease(encoder);
 
+    if (wg.heavyCoverage)
+        wgpu_waitForSubmittedWork();
+
     // The only wait after startup. Screenshots and video capture need the
     // pixels now. A browser build cannot wait here.
     WGPUMapAsyncStatus status = WGPUMapAsyncStatus_Error;
@@ -364,9 +398,26 @@ void gapi_readPixels(unsigned char* rgba, uint32_t width, uint32_t height)
     wait.future = wgpuBufferMapAsync(buffer, WGPUMapMode_Read, 0, size, callback);
     wgpuInstanceWaitAny(wg.instance, 1, &wait, UINT64_MAX);
 
+    // r_apiCoverage heavy: copy the mapped range into memory, as a browser does
+    // in all cases, and do not use a pointer to the mapped range.
+    unsigned char* copy = NULL;
+    if (status == WGPUMapAsyncStatus_Success && wg.heavyCoverage)
+    {
+        copy = (unsigned char*) malloc((size_t)size);
+        if (copy == NULL || wgpuBufferGetMapState(buffer) != WGPUBufferMapState_Mapped
+                || wgpuBufferReadMappedRange(buffer, 0, copy, (size_t)size) != WGPUStatus_Success)
+        {
+            // wgpuBufferRelease below also removes the map.
+            free(copy);
+            copy = NULL;
+            status = WGPUMapAsyncStatus_Error;
+        }
+    }
+
     if (status == WGPUMapAsyncStatus_Success)
     {
-        const unsigned char* data = (const unsigned char*)wgpuBufferGetConstMappedRange(buffer, 0, size);
+        const unsigned char* data = copy ? copy
+                : (const unsigned char*)wgpuBufferGetConstMappedRange(buffer, 0, size);
         const qboolean bgra = (s_lastFrameFormat == WGPUTextureFormat_BGRA8Unorm);
         uint32_t y, x;
 
@@ -389,6 +440,7 @@ void gapi_readPixels(unsigned char* rgba, uint32_t width, uint32_t height)
             }
         }
         wgpuBufferUnmap(buffer);
+        free(copy);
     }
     else
     {

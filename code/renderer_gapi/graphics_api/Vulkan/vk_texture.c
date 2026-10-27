@@ -538,6 +538,13 @@ void gapi_uploadTexture(gapi_texture_t* tex, const unsigned char* rgba, uint32_t
 }
 
 
+void gapi_setTextureName(gapi_texture_t* tex, const char* name)
+{
+    (void)tex;
+    (void)name;
+}
+
+
 void gapi_destroyTexture(gapi_texture_t* tex)
 {
     vk_destroySingleImage(tex);

@@ -86,6 +86,42 @@ static void wgpu_onUncapturedError(WGPUDevice const* device, WGPUErrorType type,
 }
 
 
+static void wgpu_onPopErrorScope(WGPUPopErrorScopeStatus status, WGPUErrorType type,
+        WGPUStringView message, void* userdata1, void* userdata2)
+{
+    if (status != WGPUPopErrorScopeStatus_Success || type == WGPUErrorType_NoError)
+        return;
+
+    char text[2048];
+    ri.Printf(PRINT_WARNING, "WebGPU error (%d) in %s: %s\n", (int)type, (const char*)userdata1,
+            wgpu_cString(message, text, sizeof(text)));
+    // The scope captured the error, so the uncaptured error callback does not count it.
+    wg.errorCount++;
+}
+
+
+void wgpu_pushErrorScope(void)
+{
+    if (wg.heavyCoverage)
+        wgpuDevicePushErrorScope(wg.device, WGPUErrorFilter_Validation);
+}
+
+
+void wgpu_popErrorScope(const char* label)
+{
+    if (!wg.heavyCoverage)
+        return;
+
+    WGPUPopErrorScopeCallbackInfo callback = WGPU_POP_ERROR_SCOPE_CALLBACK_INFO_INIT;
+    callback.mode = WGPUCallbackMode_WaitAnyOnly;
+    callback.callback = wgpu_onPopErrorScope;
+    callback.userdata1 = (void*)label;
+    WGPUFutureWaitInfo wait = WGPU_FUTURE_WAIT_INFO_INIT;
+    wait.future = wgpuDevicePopErrorScope(wg.device, callback);
+    wgpuInstanceWaitAny(wg.instance, 1, &wait, UINT64_MAX);
+}
+
+
 // The Dawn log. The browser WebGPU API (emdawnwebgpu) has no logging callback.
 #ifndef __EMSCRIPTEN__
 static void wgpu_onLog(WGPULoggingType type, WGPUStringView message, void* userdata1, void* userdata2)
@@ -144,6 +180,10 @@ static qboolean wgpu_requestAdapterAndDevice(void)
     wait.completed = 0;
     if (wgpuInstanceWaitAny(wg.instance, 1, &wait, UINT64_MAX) != WGPUWaitStatus_Success || wg.device == NULL)
         return qfalse;
+
+    // r_apiCoverage heavy: gapi_beginFrame examines this future, in addition to the callback.
+    if (wg.heavyCoverage)
+        wg.lostFuture = wgpuDeviceGetLostFuture(wg.device);
 
     return qtrue;
 }
@@ -338,6 +378,20 @@ static void wgpu_printApiCoverageInfo(void)
     if (wgpuDeviceGetLimits(wg.device, &limits) == WGPUStatus_Success)
         ri.Printf(PRINT_ALL, "WebGPU device limits: maxTextureDimension2D %u, maxBindGroups %u\n",
                 limits.maxTextureDimension2D, limits.maxBindGroups);
+
+    // The adapter can give more than the device asked for.
+    WGPULimits adapterLimits = WGPU_LIMITS_INIT;
+    if (wgpuAdapterGetLimits(wg.adapter, &adapterLimits) == WGPUStatus_Success)
+        ri.Printf(PRINT_ALL, "WebGPU adapter limits: maxTextureDimension2D %u, maxBindGroups %u\n",
+                adapterLimits.maxTextureDimension2D, adapterLimits.maxBindGroups);
+
+    WGPUSupportedFeatures adapterFeatures = WGPU_SUPPORTED_FEATURES_INIT;
+    wgpuAdapterGetFeatures(wg.adapter, &adapterFeatures);
+    ri.Printf(PRINT_ALL, "WebGPU adapter features (%u):", (unsigned)adapterFeatures.featureCount);
+    for (size_t i = 0; i < adapterFeatures.featureCount; i++)
+        ri.Printf(PRINT_ALL, " 0x%X", (unsigned)adapterFeatures.features[i]);
+    ri.Printf(PRINT_ALL, "\n");
+    wgpuSupportedFeaturesFreeMembers(adapterFeatures);
 
     WGPUSupportedFeatures features = WGPU_SUPPORTED_FEATURES_INIT;
     wgpuDeviceGetFeatures(wg.device, &features);

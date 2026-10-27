@@ -198,9 +198,24 @@ With `heavy`, the backend does these steps:
   The first draw with a pipeline waits for it with `wgpuInstanceWaitAny`.
 - `gapiInfo` and `vkinfo` also print the adapter information of the device, the device limits,
   the device and instance features, the instance limits, and the WGSL language features.
+- `gapiInfo` and `vkinfo` also print the adapter limits and features
+  (`wgpuAdapterGetLimits`, `wgpuAdapterGetFeatures`).
 - `gapiInfo` and `gpuMem` also print the texture, attachment, and buffer memory.
   The texture and buffer getters (`wgpuTextureGet*`, `wgpuBufferGetSize`, `wgpuBufferGetUsage`)
   give the numbers.
+- It puts a debug marker before each clear, and before each copy at the end of the frame
+  (`wgpuRenderPassEncoderInsertDebugMarker`, `wgpuCommandEncoderInsertDebugMarker`).
+- It puts an error scope around the creation of each shader module and of each synchronous
+  render pipeline (`wgpuDevicePushErrorScope`, `wgpuDevicePopErrorScope`).
+  An error in a scope prints the name of the object, and counts for `r_webgpuFatalErrors`.
+- It prints the WGSL compiler messages of each shader module (`wgpuShaderModuleGetCompilationInfo`).
+- It gives the image name to each texture (`wgpuTextureSetLabel`).
+- At the start of each frame, it examines the device-lost future (`wgpuDeviceGetLostFuture`)
+  with `wgpuInstanceWaitAny` and a timeout of 0.
+- For a screenshot, it waits for the copy with `wgpuQueueOnSubmittedWorkDone`.
+  Then it copies the pixels with `wgpuBufferGetMapState` and `wgpuBufferReadMappedRange`, not
+  with `wgpuBufferGetConstMappedRange`.
+- At shutdown, it destroys the geometry buffers with `wgpuBufferDestroy` before the release.
 
 ### Check the heavy path
 
@@ -220,21 +235,14 @@ The screenshot runs in the frame after the command, thus `+wait 10` comes before
 
 ### More API coverage
 
-The calls in this table are not in a capture of `demo four` with `heavy`.
+The items in this table are not done.
+Except for the first item, their calls are not in a capture of `demo four` with `heavy`.
 Each item has a use in a real renderer.
 Put a new item behind `wg.heavyCoverage`, keep the frames the same, and add it to the list above.
 
 | Item | Calls | Size | Work |
 |---|---|---|---|
-| Debug markers | `wgpuRenderPassEncoderInsertDebugMarker`, `wgpuCommandEncoderInsertDebugMarker` | small | Put the shader name of each draw (`gapi_draw`) or of each clear into a marker |
-| Error scopes | `wgpuDevicePushErrorScope`, `wgpuDevicePopErrorScope` | small | Put a scope around the creation of a shader module and of a pipeline, and print the name of the object that failed |
-| Shader compilation messages | `wgpuShaderModuleGetCompilationInfo` | small | Print the WGSL warnings after `wgpu_createPipelineResources` makes the modules |
-| Adapter information | `wgpuAdapterGetLimits`, `wgpuAdapterGetFeatures` | small | Print the adapter limits and features in `gapiInfo`, next to the device values |
-| Work-done notification | `wgpuQueueOnSubmittedWorkDone` | small | Wait for the submitted work before the map of the screenshot buffer (`wgpu_draw.c`) |
-| Device-lost future | `wgpuDeviceGetLostFuture` | small | Check the future with `wgpuInstanceWaitAny` and a timeout of 0 at the start of each frame |
-| Mapped-range copies | `wgpuBufferGetMapState`, `wgpuBufferReadMappedRange` | small | Copy the screenshot pixels with `wgpuBufferReadMappedRange`, not with `wgpuBufferGetConstMappedRange` |
-| Buffer destruction | `wgpuBufferDestroy` | small | Destroy the geometry buffers at shutdown, before the release |
-| Texture labels | `wgpuTextureSetLabel` | small | Give the image name to a texture when `gapi_uploadTexture` puts a new image into it |
+| Debug markers for each draw | `wgpuRenderPassEncoderInsertDebugMarker` | small | Add a gapi function, and give the shader name of each draw from the shared renderer code. The markers of the clears and of the copies are done |
 | GPU frame time | `wgpuDeviceCreateQuerySet` (timestamp), `wgpuCommandEncoderWriteTimestamp`, `wgpuCommandEncoderResolveQuerySet` | medium | Needs the `TimestampQuery` feature. Read the result some frames later and print it with `r_speeds` |
 | Light flares | `wgpuDeviceCreateQuerySet` (occlusion), `wgpuRenderPassEncoderBeginOcclusionQuery`, `wgpuRenderPassEncoderEndOcclusionQuery`, `wgpuCommandEncoderResolveQuerySet`, `wgpuQuerySetDestroy` | large | `RB_RenderFlares` has no caller, and `tr_flares.c` reads the depth with `glReadPixels`. Replace the depth read with an occlusion query for each flare, and use the result of an earlier frame |
 | GPU mipmaps | `wgpuDeviceCreateComputePipeline`, `wgpuDeviceCreateComputePipelineAsync`, the `wgpuComputePassEncoder*` calls | medium | Make the mipmap levels with a compute pass, not on the CPU |

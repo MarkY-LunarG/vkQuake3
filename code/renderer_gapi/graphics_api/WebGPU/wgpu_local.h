@@ -58,6 +58,7 @@ typedef struct {
 	// not change. vid_restart applies a change (CVAR_LATCH).
 	cvar_t* apiCoverage;
 	qboolean heavyCoverage;
+	WGPUFuture lostFuture;			// heavy: the device-lost future
 
 	// The objects that exist from gapi_init to gapi_shutdown.
 	WGPUBindGroupLayout uniformLayout;		// group 0: the vertex shader constants
@@ -137,6 +138,12 @@ void wgpu_keepLastFrame(void);
 // Copy the offscreen texture to the surface texture, after the render pass of
 // the frame.
 void wgpu_blitToSurface(void);
+
+// wgpu_init.c, r_apiCoverage heavy: an error scope around the creation of an
+// object. wgpu_popErrorScope waits for the result, and prints an error with the
+// label. With the default path, the two functions do nothing.
+void wgpu_pushErrorScope(void);
+void wgpu_popErrorScope(const char* label);
 
 // A string view from a C string, and a C string from a string view.
 WGPUStringView wgpu_stringView(const char* text);

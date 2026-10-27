@@ -32,6 +32,25 @@ enum {
 static WGPUShaderModule s_shaders[SHADER_COUNT];
 
 
+// r_apiCoverage heavy: print the messages of the WGSL compiler.
+static void wgpu_onCompilationInfo(WGPUCompilationInfoRequestStatus status, WGPUCompilationInfo const* info,
+        void* userdata1, void* userdata2)
+{
+    if (status != WGPUCompilationInfoRequestStatus_Success || info == NULL)
+        return;
+
+    size_t i;
+    for (i = 0; i < info->messageCount; i++)
+    {
+        const WGPUCompilationMessage* msg = &info->messages[i];
+        char text[1024];
+        ri.Printf(msg->type == WGPUCompilationMessageType_Info ? PRINT_DEVELOPER : PRINT_WARNING,
+                "WebGPU: %s:%u:%u: %s\n", (const char*)userdata1, (unsigned)msg->lineNum, (unsigned)msg->linePos,
+                wgpu_cString(msg->message, text, sizeof(text)));
+    }
+}
+
+
 static WGPUShaderModule wgpu_createShader(const char* label, const unsigned char* code, int size)
 {
     WGPUShaderSourceWGSL source = WGPU_SHADER_SOURCE_WGSL_INIT;
@@ -41,7 +60,23 @@ static WGPUShaderModule wgpu_createShader(const char* label, const unsigned char
     WGPUShaderModuleDescriptor desc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
     desc.nextInChain = &source.chain;
     desc.label = wgpu_stringView(label);
-    return wgpuDeviceCreateShaderModule(wg.device, &desc);
+
+    wgpu_pushErrorScope();
+    WGPUShaderModule module = wgpuDeviceCreateShaderModule(wg.device, &desc);
+    wgpu_popErrorScope(label);
+
+    if (wg.heavyCoverage)
+    {
+        WGPUCompilationInfoCallbackInfo callback = WGPU_COMPILATION_INFO_CALLBACK_INFO_INIT;
+        callback.mode = WGPUCallbackMode_WaitAnyOnly;
+        callback.callback = wgpu_onCompilationInfo;
+        callback.userdata1 = (void*)label;
+        WGPUFutureWaitInfo wait = WGPU_FUTURE_WAIT_INFO_INIT;
+        wait.future = wgpuShaderModuleGetCompilationInfo(module, callback);
+        wgpuInstanceWaitAny(wg.instance, 1, &wait, UINT64_MAX);
+    }
+
+    return module;
 }
 
 
@@ -329,7 +364,10 @@ static WGPURenderPipeline wgpu_createRenderPipeline(const gapi_pipelineDesc_t* d
         return NULL;
     }
 
-    return wgpuDeviceCreateRenderPipeline(wg.device, &desc);
+    wgpu_pushErrorScope();
+    WGPURenderPipeline renderPipeline = wgpuDeviceCreateRenderPipeline(wg.device, &desc);
+    wgpu_popErrorScope("render pipeline");
+    return renderPipeline;
 }
 
 
@@ -364,7 +402,7 @@ void wgpu_resolvePipeline(gapi_pipeline_t* pipeline)
     pipeline->pending = qfalse;
 
     // If the asynchronous build failed, a synchronous build reports the
-    // validation error through the uncaptured error callback.
+    // validation error through its error scope.
     if (pipeline->pipeline == NULL)
         pipeline->pipeline = wgpu_createRenderPipeline(&pipeline->desc, pipeline->depthBiasConstant,
                 pipeline->depthBiasSlope, NULL);

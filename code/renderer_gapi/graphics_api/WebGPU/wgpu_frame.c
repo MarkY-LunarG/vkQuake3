@@ -283,6 +283,19 @@ void gapi_beginFrame(void)
     if (wg.errorCount != 0 && wg.fatalErrors && wg.fatalErrors->integer)
         ri.Error(ERR_FATAL, "WebGPU: %u errors, and r_webgpuFatalErrors is 1\n", wg.errorCount);
 
+    // r_apiCoverage heavy: the device-lost future is complete when the device
+    // is lost. A timeout of 0 does not wait. Examine the future only one time.
+    if (wg.heavyCoverage && wg.lostFuture.id != 0)
+    {
+        WGPUFutureWaitInfo wait = WGPU_FUTURE_WAIT_INFO_INIT;
+        wait.future = wg.lostFuture;
+        if (wgpuInstanceWaitAny(wg.instance, 1, &wait, 0) == WGPUWaitStatus_Success && wait.completed)
+        {
+            wg.lostFuture.id = 0;
+            wg.deviceLost = qtrue;
+        }
+    }
+
     if (wg.deviceLost)
     {
         // Restart the renderer, as for other fatal graphics errors.
@@ -355,10 +368,16 @@ void gapi_endFrame(void)
         wgpuCommandEncoderPushDebugGroup(wg.encoder, wgpu_stringView("end of frame copies"));
 
     // Keep a copy for screenshots and video capture.
+    if (wg.heavyCoverage)
+        wgpuCommandEncoderInsertDebugMarker(wg.encoder, wgpu_stringView("keep the last frame"));
     wgpu_keepLastFrame();
 
     if (wg.offscreen)
+    {
+        if (wg.heavyCoverage)
+            wgpuCommandEncoderInsertDebugMarker(wg.encoder, wgpu_stringView("copy to the surface"));
         wgpu_blitToSurface();
+    }
 
     if (wg.heavyCoverage)
         wgpuCommandEncoderPopDebugGroup(wg.encoder);

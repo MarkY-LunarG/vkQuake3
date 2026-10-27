@@ -143,6 +143,11 @@ void gapi_uploadTexture(gapi_texture_t* tex, const unsigned char* rgba, uint32_t
 
 void gapi_destroyTexture(gapi_texture_t* tex);
 
+// Give the image name to the texture, for debug and capture tools. The WebGPU
+// backend sets the label only with r_apiCoverage heavy. The Vulkan backend does
+// not use the name.
+void gapi_setTextureName(gapi_texture_t* tex, const char* name);
+
 // The console command that prints the texture memory use.
 void gapi_printMemoryInfo(void);
 

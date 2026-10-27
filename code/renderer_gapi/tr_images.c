@@ -189,6 +189,7 @@ image_t* R_CreateImage( const char *name, unsigned char* pic, const uint32_t wid
     
     pImage->tex = gapi_createTexture(pImage->uploadWidth, pImage->uploadHeight, pImage->mipLevels,
             pImage->mipmap, pImage->wrapClampMode == GL_REPEAT ? qtrue : qfalse);
+    gapi_setTextureName(pImage->tex, pImage->imgName);
     gapi_uploadTexture(pImage->tex, pUploadBuffer, pImage->mipLevels);
 
 
@@ -290,6 +291,7 @@ void RE_UploadCinematic (int w, int h, int cols, int rows, const unsigned char *
         gapi_destroyTexture(prtImage->tex);
         prtImage->tex = gapi_createTexture(cols, rows, 1, prtImage->mipmap,
                 prtImage->wrapClampMode == GL_REPEAT ? qtrue : qfalse);
+        gapi_setTextureName(prtImage->tex, prtImage->imgName);
         gapi_uploadTexture(prtImage->tex, data, 1);
     }
     else if (dirty)
