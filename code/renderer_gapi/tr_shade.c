@@ -111,6 +111,9 @@ void RB_EndSurface( void )
 	backEnd.pc.c_indexes += tess.numIndexes;
 	backEnd.pc.c_totalIndexes += tess.numIndexes * tess.numPasses;
 
+	// a debug marker with the shader name (r_apiCoverage heavy on WebGPU)
+	gapi_insertDebugMarker( tess.shader->name );
+
 	//
 	// call off to shader specific tess end function
 	//

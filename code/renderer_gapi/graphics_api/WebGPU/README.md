@@ -208,6 +208,14 @@ With `heavy`, the backend does these steps:
   give the numbers.
 - It puts a debug marker before each clear, and before each copy at the end of the frame
   (`wgpuRenderPassEncoderInsertDebugMarker`, `wgpuCommandEncoderInsertDebugMarker`).
+  `RB_EndSurface` puts a marker with the shader name before each batch of surfaces
+  (`gapi_insertDebugMarker`).
+- If the adapter has the `TimestampQuery` feature, the device gets it.
+  Two timestamps measure the render pass of each frame on the GPU (`timestampWrites`).
+  `wgpuCommandEncoderResolveQuerySet` and `wgpuCommandEncoderCopyBufferToBuffer` copy them to a
+  buffer, and a map without a wait reads them some frames later.
+  `r_speeds 1` prints the time for each frame, and `gapiInfo` prints the last time.
+  `r_speeds` is a cheat cvar: use it on a map that `devmap` starts.
 - It puts an error scope around the creation of each shader module and of each synchronous
   render pipeline (`wgpuDevicePushErrorScope`, `wgpuDevicePopErrorScope`).
   The backend does not wait for the result of a scope.
@@ -244,15 +252,13 @@ Thus `cg_lagometer 0` removes it from the screenshot.
 ### More API coverage
 
 The items in this table are not done.
-Except for the first item, their calls are not in a capture of `demo four` with `heavy`.
+The table names the calls that are not in a capture of `demo four` with `heavy`.
 Each item has a use in a real renderer.
 Put a new item behind `wg.heavyCoverage`, keep the frames the same, and add it to the list above.
 
 | Item | Calls | Size | Work |
 |---|---|---|---|
-| Debug markers for each draw | `wgpuRenderPassEncoderInsertDebugMarker` | small | Add a gapi function, and give the shader name of each draw from the shared renderer code. The markers of the clears and of the copies are done |
-| GPU frame time | `wgpuDeviceCreateQuerySet` (timestamp), `wgpuCommandEncoderWriteTimestamp`, `wgpuCommandEncoderResolveQuerySet` | medium | Needs the `TimestampQuery` feature. Read the result some frames later and print it with `r_speeds` |
-| Light flares | `wgpuDeviceCreateQuerySet` (occlusion), `wgpuRenderPassEncoderBeginOcclusionQuery`, `wgpuRenderPassEncoderEndOcclusionQuery`, `wgpuCommandEncoderResolveQuerySet`, `wgpuQuerySetDestroy` | large | `RB_RenderFlares` has no caller, and `tr_flares.c` reads the depth with `glReadPixels`. Replace the depth read with an occlusion query for each flare, and use the result of an earlier frame |
+| Light flares | `wgpuRenderPassEncoderBeginOcclusionQuery`, `wgpuRenderPassEncoderEndOcclusionQuery`, and an occlusion query set | large | `RB_RenderFlares` has no caller, and `tr_flares.c` reads the depth with `glReadPixels`. Replace the depth read with an occlusion query for each flare, and use the result of an earlier frame |
 | GPU mipmaps | `wgpuDeviceCreateComputePipeline`, `wgpuDeviceCreateComputePipelineAsync`, the `wgpuComputePassEncoder*` calls | medium | Make the mipmap levels with a compute pass, not on the CPU |
 
 Render bundles and indirect draws are not in the table.

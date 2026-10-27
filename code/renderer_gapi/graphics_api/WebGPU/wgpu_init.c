@@ -156,12 +156,18 @@ static qboolean wgpu_requestAdapterAndDevice(void)
     adapterOptions.compatibleSurface = NULL;
 
     // Request only the optional features that the adapter has.
-    WGPUFeatureName features[1];
+    WGPUFeatureName features[2];
     size_t featureCount = 0;
     if (wgpuAdapterHasFeature(wg.adapter, WGPUFeatureName_ClipDistances))
     {
         features[featureCount++] = WGPUFeatureName_ClipDistances;
         wg.clipDistances = qtrue;
+    }
+    // r_apiCoverage heavy: timestamp queries measure the render pass on the GPU.
+    if (wg.heavyCoverage && wgpuAdapterHasFeature(wg.adapter, WGPUFeatureName_TimestampQuery))
+    {
+        features[featureCount++] = WGPUFeatureName_TimestampQuery;
+        wg.timestampQuery = qtrue;
     }
 
     WGPUDeviceDescriptor deviceDesc = WGPU_DEVICE_DESCRIPTOR_INIT;
@@ -195,6 +201,7 @@ static void wgpu_releaseAll(void)
     wgpu_releaseFrameResources();
     if (wg.device)
     {
+        wgpu_releaseTimingResources();
         wgpu_releaseDrawResources();
         wgpu_releasePipelineResources();
         wgpu_releaseGeometryResources();
@@ -300,6 +307,7 @@ qboolean gapi_init(struct SDL_Window* window)
     wgpu_createGeometryResources();
     wgpu_createPipelineResources();
     wgpu_createDrawResources();
+    wgpu_createTimingResources();
 
     wg.initialized = qtrue;
     return qtrue;
@@ -427,6 +435,7 @@ static void wgpu_printApiCoverageInfo(void)
     ri.Printf(PRINT_ALL, "WebGPU WGSL packed 4x8 integer dot product: %s\n",
             wgpuInstanceHasWGSLLanguageFeature(wg.instance, WGPUWGSLLanguageFeatureName_Packed4x8IntegerDotProduct)
                     ? "yes" : "no");
+    wgpu_printTimingInfo();
 }
 
 

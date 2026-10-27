@@ -59,6 +59,7 @@ typedef struct {
 	cvar_t* apiCoverage;
 	qboolean heavyCoverage;
 	WGPUFuture lostFuture;			// heavy: the device-lost future
+	qboolean timestampQuery;		// heavy: the device has the timestamp-query feature
 
 	// The objects that exist from gapi_init to gapi_shutdown.
 	WGPUBindGroupLayout uniformLayout;		// group 0: the vertex shader constants
@@ -108,6 +109,12 @@ WGPUSurface wgpu_createSurfaceImpl(WGPUInstance instance, struct SDL_Window* win
 // wgpu_frame.c: configure the surface and make the depth attachment.
 qboolean wgpu_configureSurface(void);
 void wgpu_releaseFrameResources(void);
+
+// wgpu_frame.c, r_apiCoverage heavy: the timestamp queries of the render pass.
+// They do nothing without the timestamp-query feature.
+void wgpu_createTimingResources(void);
+void wgpu_releaseTimingResources(void);
+void wgpu_printTimingInfo(void);
 
 // wgpu_texture.c: the samplers and the texture bind group layout.
 void wgpu_createTextureResources(void);

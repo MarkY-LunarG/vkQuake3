@@ -10,6 +10,163 @@
 // r_swapInterval: 0 is no vertical sync, 1 is vertical sync, -1 is adaptive.
 static int s_swapInterval = 0;
 
+// r_apiCoverage heavy: the GPU time of the render pass of a frame, from two
+// timestamp queries. The result comes back some frames later: the queries of
+// each frame go into one slot of a ring, and a map without a wait reads them.
+#define TIMING_SLOTS 3
+#define TIMING_SLOT_STRIDE 256	// the offset of a query resolve must be a multiple of 256
+
+typedef struct {
+    WGPUQuerySet querySet;					// 2 timestamps for each slot
+    WGPUBuffer resolveBuffer;				// TIMING_SLOT_STRIDE bytes for each slot
+    WGPUBuffer readBuffers[TIMING_SLOTS];	// 2 timestamps that the CPU can read
+    qboolean busy[TIMING_SLOTS];			// the map of the read buffer did not complete
+    uint32_t next;							// the slot of the next frame
+    int current;							// the slot of this frame, or -1
+    qboolean valid;
+    double gpuMs;							// the last result
+    cvar_t* speeds;							// r_speeds
+} wgpuTiming_t;
+
+static wgpuTiming_t s_timing;
+
+
+void wgpu_createTimingResources(void)
+{
+    memset(&s_timing, 0, sizeof(s_timing));
+    s_timing.current = -1;
+    if (!wg.timestampQuery)
+        return;
+
+    s_timing.speeds = ri.Cvar_Get("r_speeds", "0", CVAR_CHEAT);
+
+    WGPUQuerySetDescriptor queryDesc = WGPU_QUERY_SET_DESCRIPTOR_INIT;
+    queryDesc.label = wgpu_stringView("frame timestamps");
+    queryDesc.type = WGPUQueryType_Timestamp;
+    queryDesc.count = 2 * TIMING_SLOTS;
+    s_timing.querySet = wgpuDeviceCreateQuerySet(wg.device, &queryDesc);
+
+    WGPUBufferDescriptor bufferDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+    bufferDesc.label = wgpu_stringView("frame timestamps resolve");
+    bufferDesc.usage = WGPUBufferUsage_QueryResolve | WGPUBufferUsage_CopySrc;
+    bufferDesc.size = TIMING_SLOT_STRIDE * TIMING_SLOTS;
+    s_timing.resolveBuffer = wgpuDeviceCreateBuffer(wg.device, &bufferDesc);
+
+    uint32_t i;
+    for (i = 0; i < TIMING_SLOTS; i++)
+    {
+        bufferDesc.label = wgpu_stringView("frame timestamps read");
+        bufferDesc.usage = WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst;
+        bufferDesc.size = 2 * sizeof(uint64_t);
+        s_timing.readBuffers[i] = wgpuDeviceCreateBuffer(wg.device, &bufferDesc);
+    }
+}
+
+
+void wgpu_releaseTimingResources(void)
+{
+    uint32_t i;
+    for (i = 0; i < TIMING_SLOTS; i++)
+    {
+        if (s_timing.readBuffers[i])
+            wgpuBufferRelease(s_timing.readBuffers[i]);
+    }
+    if (s_timing.resolveBuffer)
+        wgpuBufferRelease(s_timing.resolveBuffer);
+    if (s_timing.querySet)
+    {
+        wgpuQuerySetDestroy(s_timing.querySet);
+        wgpuQuerySetRelease(s_timing.querySet);
+    }
+    // A map that did not complete calls wgpu_onTimingMapped with a failure
+    // status. That callback does not use the released objects.
+    memset(&s_timing, 0, sizeof(s_timing));
+    s_timing.current = -1;
+}
+
+
+// Select the slot of this frame. Return qfalse when no slot is free.
+static qboolean wgpu_beginTiming(WGPUPassTimestampWrites* writes)
+{
+    s_timing.current = -1;
+    if (s_timing.querySet == NULL || s_timing.busy[s_timing.next])
+        return qfalse;
+
+    s_timing.current = (int)s_timing.next;
+    s_timing.next = (s_timing.next + 1) % TIMING_SLOTS;
+
+    writes->querySet = s_timing.querySet;
+    writes->beginningOfPassWriteIndex = 2 * (uint32_t)s_timing.current;
+    writes->endOfPassWriteIndex = 2 * (uint32_t)s_timing.current + 1;
+    return qtrue;
+}
+
+
+// After the render pass: copy the timestamps of this frame to the read buffer.
+static void wgpu_resolveTiming(void)
+{
+    if (s_timing.current < 0)
+        return;
+
+    const uint32_t slot = (uint32_t)s_timing.current;
+    wgpuCommandEncoderResolveQuerySet(wg.encoder, s_timing.querySet, 2 * slot, 2, s_timing.resolveBuffer,
+            (uint64_t)TIMING_SLOT_STRIDE * slot);
+    wgpuCommandEncoderCopyBufferToBuffer(wg.encoder, s_timing.resolveBuffer, (uint64_t)TIMING_SLOT_STRIDE * slot,
+            s_timing.readBuffers[slot], 0, 2 * sizeof(uint64_t));
+}
+
+
+static void wgpu_onTimingMapped(WGPUMapAsyncStatus status, WGPUStringView message, void* userdata1, void* userdata2)
+{
+    const uint32_t slot = (uint32_t)(uintptr_t)userdata1;
+    s_timing.busy[slot] = qfalse;
+    if (status != WGPUMapAsyncStatus_Success)
+        return;
+
+    const uint64_t* ticks = (const uint64_t*)wgpuBufferGetConstMappedRange(s_timing.readBuffers[slot], 0,
+            2 * sizeof(uint64_t));
+    // A timestamp is in nanoseconds. A browser can round the values, and an
+    // end before the beginning is possible.
+    if (ticks && ticks[1] >= ticks[0])
+    {
+        s_timing.gpuMs = (double)(ticks[1] - ticks[0]) / 1000000.0;
+        s_timing.valid = qtrue;
+    }
+    wgpuBufferUnmap(s_timing.readBuffers[slot]);
+}
+
+
+// After the submit: start the map of the read buffer. The callback runs in the
+// wgpuInstanceProcessEvents of a later gapi_beginFrame, so this does not wait.
+static void wgpu_readTiming(void)
+{
+    if (s_timing.current < 0)
+        return;
+
+    const uint32_t slot = (uint32_t)s_timing.current;
+    WGPUBufferMapCallbackInfo callback = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
+    callback.mode = WGPUCallbackMode_AllowProcessEvents;
+    callback.callback = wgpu_onTimingMapped;
+    callback.userdata1 = (void*)(uintptr_t)slot;
+    s_timing.busy[slot] = qtrue;
+    wgpuBufferMapAsync(s_timing.readBuffers[slot], WGPUMapMode_Read, 0, 2 * sizeof(uint64_t), callback);
+    s_timing.current = -1;
+
+    if (s_timing.valid && s_timing.speeds && s_timing.speeds->integer)
+        ri.Printf(PRINT_ALL, "WebGPU GPU time of the render pass: %.3f ms\n", s_timing.gpuMs);
+}
+
+
+void wgpu_printTimingInfo(void)
+{
+    if (!wg.timestampQuery)
+        ri.Printf(PRINT_ALL, "WebGPU timestamp queries: no\n");
+    else if (!s_timing.valid)
+        ri.Printf(PRINT_ALL, "WebGPU timestamp queries: yes, no result yet\n");
+    else
+        ri.Printf(PRINT_ALL, "WebGPU timestamp queries: yes, the last render pass took %.3f ms\n", s_timing.gpuMs);
+}
+
 
 static WGPUPresentMode wgpu_selectPresentMode(const WGPUSurfaceCapabilities* caps)
 {
@@ -347,6 +504,12 @@ void gapi_beginFrame(void)
     passDesc.colorAttachmentCount = 1;
     passDesc.colorAttachments = &color;
     passDesc.depthStencilAttachment = &depth;
+
+    // r_apiCoverage heavy: the timestamps at the start and the end of the pass.
+    WGPUPassTimestampWrites timestamps = WGPU_PASS_TIMESTAMP_WRITES_INIT;
+    if (wgpu_beginTiming(&timestamps))
+        passDesc.timestampWrites = &timestamps;
+
     wg.pass = wgpuCommandEncoderBeginRenderPass(wg.encoder, &passDesc);
 
     wgpu_beginGeometryFrame();
@@ -361,6 +524,7 @@ void gapi_endFrame(void)
         return;
 
     wgpuRenderPassEncoderEnd(wg.pass);
+    wgpu_resolveTiming();
 
     // Write the vertex data and the vertex shader constants of the frame.
     // The queue does the writes before the commands of the frame.
@@ -388,6 +552,7 @@ void gapi_endFrame(void)
     WGPUCommandBuffer commands = wgpuCommandEncoderFinish(wg.encoder, NULL);
     wgpuQueueSubmit(wg.queue, 1, &commands);
     wgpuCommandBufferRelease(commands);
+    wgpu_readTiming();
 
     // The only call to wgpuSurfacePresent. A browser presents by itself.
 #ifndef __EMSCRIPTEN__

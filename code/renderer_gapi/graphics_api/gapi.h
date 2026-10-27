@@ -179,5 +179,8 @@ void gapi_clearDepthStencil(const gapi_rect_t* rect, qboolean stencil);
 // backend does not record them.
 void gapi_pushDebugGroup(const char* name);
 void gapi_popDebugGroup(void);
+// Put a named marker between the draws, for debug and capture tools. The same
+// rules as for the debug groups apply.
+void gapi_insertDebugMarker(const char* name);
 
 #endif

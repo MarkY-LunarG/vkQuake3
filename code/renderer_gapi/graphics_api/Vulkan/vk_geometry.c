@@ -567,3 +567,9 @@ void gapi_pushDebugGroup(const char* name)
 void gapi_popDebugGroup(void)
 {
 }
+
+
+void gapi_insertDebugMarker(const char* name)
+{
+    (void)name;
+}

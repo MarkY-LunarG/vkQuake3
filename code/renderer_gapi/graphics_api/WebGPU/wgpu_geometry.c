@@ -380,3 +380,11 @@ void gapi_popDebugGroup(void)
         return;
     wgpuRenderPassEncoderPopDebugGroup(wg.pass);
 }
+
+
+void gapi_insertDebugMarker(const char* name)
+{
+    if (!wg.frameActive || !wg.heavyCoverage)
+        return;
+    wgpuRenderPassEncoderInsertDebugMarker(wg.pass, wgpu_stringView(name));
+}
