@@ -7,6 +7,190 @@ static uint32_t s_numTextures = 0;
 static gapi_texture_t* s_textures = NULL;		// the list of live textures
 
 
+// r_apiCoverage heavy: the compute pass that makes the mipmaps on the GPU
+// (gapi_generateMipmaps). It does the integer arithmetic of R_MipMap: the sum
+// of 2x2 texels (2 texels for a level with a size of 1), shifted right. An
+// rgba8unorm texel is v/255, and the store of v/255 gives v again, so the
+// levels are the same as the levels of R_MipMap.
+static const char s_mipmapShader[] =
+    "@group(0) @binding(0) var src : texture_2d<f32>;\n"
+    "@group(0) @binding(1) var dst : texture_storage_2d<rgba8unorm, write>;\n"
+    "\n"
+    "fn texel(p : vec2<i32>) -> vec4<u32> {\n"
+    "    return vec4<u32>(round(textureLoad(src, p, 0) * 255.0));\n"
+    "}\n"
+    "\n"
+    "@compute @workgroup_size(8, 8)\n"
+    "fn main(@builtin(global_invocation_id) id : vec3<u32>) {\n"
+    "    let outSize = textureDimensions(dst);\n"
+    "    if (id.x >= outSize.x || id.y >= outSize.y) {\n"
+    "        return;\n"
+    "    }\n"
+    "    let inSize = textureDimensions(src);\n"
+    "    let p = vec2<i32>(id.xy) * 2;\n"
+    "    var sum : vec4<u32>;\n"
+    "    if (inSize.x > 1u && inSize.y > 1u) {\n"
+    "        sum = (texel(p) + texel(p + vec2<i32>(1, 0)) + texel(p + vec2<i32>(0, 1)) + texel(p + vec2<i32>(1, 1))) >> vec4<u32>(2u);\n"
+    "    } else if (inSize.x > 1u) {\n"
+    "        sum = (texel(p) + texel(p + vec2<i32>(1, 0))) >> vec4<u32>(1u);\n"
+    "    } else {\n"
+    "        sum = (texel(p) + texel(p + vec2<i32>(0, 1))) >> vec4<u32>(1u);\n"
+    "    }\n"
+    "    textureStore(dst, vec2<i32>(id.xy), vec4<f32>(sum) / 255.0);\n"
+    "}\n";
+
+static WGPUBindGroupLayout s_mipmapLayout = NULL;
+static WGPUComputePipeline s_mipmapPipeline = NULL;
+
+
+static void wgpu_onComputePipelineCreated(WGPUCreatePipelineAsyncStatus status, WGPUComputePipeline pipeline,
+        WGPUStringView message, void* userdata1, void* userdata2)
+{
+    if (status == WGPUCreatePipelineAsyncStatus_Success)
+    {
+        s_mipmapPipeline = pipeline;
+        return;
+    }
+
+    char text[1024];
+    ri.Printf(PRINT_WARNING, "WebGPU: the mipmap pipeline failed: %s\n", wgpu_cString(message, text, sizeof(text)));
+    if (pipeline)
+        wgpuComputePipelineRelease(pipeline);
+}
+
+
+// Make the mipmap pipeline. This is at startup, not in a frame, so the wait
+// for the asynchronous build is permitted in a browser.
+static void wgpu_createMipmapResources(void)
+{
+    WGPUBindGroupLayoutEntry entries[2] = { WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT, WGPU_BIND_GROUP_LAYOUT_ENTRY_INIT };
+    entries[0].binding = 0;
+    entries[0].visibility = WGPUShaderStage_Compute;
+    entries[0].texture.sampleType = WGPUTextureSampleType_Float;
+    entries[0].texture.viewDimension = WGPUTextureViewDimension_2D;
+    entries[1].binding = 1;
+    entries[1].visibility = WGPUShaderStage_Compute;
+    entries[1].storageTexture.access = WGPUStorageTextureAccess_WriteOnly;
+    entries[1].storageTexture.format = WGPUTextureFormat_RGBA8Unorm;
+    entries[1].storageTexture.viewDimension = WGPUTextureViewDimension_2D;
+
+    WGPUBindGroupLayoutDescriptor layoutDesc = WGPU_BIND_GROUP_LAYOUT_DESCRIPTOR_INIT;
+    layoutDesc.label = wgpu_stringView("mipmap");
+    layoutDesc.entryCount = 2;
+    layoutDesc.entries = entries;
+    s_mipmapLayout = wgpuDeviceCreateBindGroupLayout(wg.device, &layoutDesc);
+
+    WGPUPipelineLayoutDescriptor pipelineLayoutDesc = WGPU_PIPELINE_LAYOUT_DESCRIPTOR_INIT;
+    pipelineLayoutDesc.label = wgpu_stringView("mipmap");
+    pipelineLayoutDesc.bindGroupLayoutCount = 1;
+    pipelineLayoutDesc.bindGroupLayouts = &s_mipmapLayout;
+    WGPUPipelineLayout pipelineLayout = wgpuDeviceCreatePipelineLayout(wg.device, &pipelineLayoutDesc);
+
+    WGPUShaderSourceWGSL source = WGPU_SHADER_SOURCE_WGSL_INIT;
+    source.code = wgpu_stringView(s_mipmapShader);
+    WGPUShaderModuleDescriptor moduleDesc = WGPU_SHADER_MODULE_DESCRIPTOR_INIT;
+    moduleDesc.nextInChain = &source.chain;
+    moduleDesc.label = wgpu_stringView("mipmap.comp");
+    wgpu_pushErrorScope();
+    WGPUShaderModule module = wgpuDeviceCreateShaderModule(wg.device, &moduleDesc);
+    wgpu_popErrorScope("mipmap.comp");
+
+    WGPUComputePipelineDescriptor pipelineDesc = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
+    pipelineDesc.label = wgpu_stringView("mipmap");
+    pipelineDesc.layout = pipelineLayout;
+    pipelineDesc.compute.module = module;
+    pipelineDesc.compute.entryPoint = wgpu_stringView("main");
+
+    WGPUCreateComputePipelineAsyncCallbackInfo callback = WGPU_CREATE_COMPUTE_PIPELINE_ASYNC_CALLBACK_INFO_INIT;
+    callback.mode = WGPUCallbackMode_WaitAnyOnly;
+    callback.callback = wgpu_onComputePipelineCreated;
+    WGPUFutureWaitInfo wait = WGPU_FUTURE_WAIT_INFO_INIT;
+    wait.future = wgpuDeviceCreateComputePipelineAsync(wg.device, &pipelineDesc, callback);
+    wgpuInstanceWaitAny(wg.instance, 1, &wait, UINT64_MAX);
+
+    wgpuShaderModuleRelease(module);
+    wgpuPipelineLayoutRelease(pipelineLayout);
+}
+
+
+static void wgpu_releaseMipmapResources(void)
+{
+    if (s_mipmapPipeline)
+        wgpuComputePipelineRelease(s_mipmapPipeline);
+    if (s_mipmapLayout)
+        wgpuBindGroupLayoutRelease(s_mipmapLayout);
+    s_mipmapPipeline = NULL;
+    s_mipmapLayout = NULL;
+}
+
+
+qboolean wgpu_mipmapGeneration(void)
+{
+    return (s_mipmapPipeline != NULL) ? qtrue : qfalse;
+}
+
+
+void gapi_generateMipmaps(gapi_texture_t* tex)
+{
+    if (s_mipmapPipeline == NULL || tex->mipLevels < 2)
+        return;
+
+    WGPUCommandEncoder encoder = wgpuDeviceCreateCommandEncoder(wg.device, NULL);
+    WGPUComputePassDescriptor passDesc = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT;
+    passDesc.label = wgpu_stringView("mipmaps");
+    WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(encoder, &passDesc);
+    wgpuComputePassEncoderPushDebugGroup(pass, wgpu_stringView("mipmaps"));
+    wgpuComputePassEncoderSetPipeline(pass, s_mipmapPipeline);
+
+    uint32_t width = tex->width;
+    uint32_t height = tex->height;
+    uint32_t level;
+    for (level = 1; level < tex->mipLevels; level++)
+    {
+        width = (width > 1) ? width >> 1 : 1;
+        height = (height > 1) ? height >> 1 : 1;
+
+        WGPUTextureViewDescriptor viewDesc = WGPU_TEXTURE_VIEW_DESCRIPTOR_INIT;
+        viewDesc.dimension = WGPUTextureViewDimension_2D;
+        viewDesc.baseMipLevel = level - 1;
+        viewDesc.mipLevelCount = 1;
+        viewDesc.arrayLayerCount = 1;
+        WGPUTextureView srcView = wgpuTextureCreateView(tex->texture, &viewDesc);
+        viewDesc.baseMipLevel = level;
+        WGPUTextureView dstView = wgpuTextureCreateView(tex->texture, &viewDesc);
+
+        WGPUBindGroupEntry entries[2] = { WGPU_BIND_GROUP_ENTRY_INIT, WGPU_BIND_GROUP_ENTRY_INIT };
+        entries[0].binding = 0;
+        entries[0].textureView = srcView;
+        entries[1].binding = 1;
+        entries[1].textureView = dstView;
+        WGPUBindGroupDescriptor groupDesc = WGPU_BIND_GROUP_DESCRIPTOR_INIT;
+        groupDesc.layout = s_mipmapLayout;
+        groupDesc.entryCount = 2;
+        groupDesc.entries = entries;
+        WGPUBindGroup group = wgpuDeviceCreateBindGroup(wg.device, &groupDesc);
+
+        wgpuComputePassEncoderInsertDebugMarker(pass, wgpu_stringView("level"));
+        wgpuComputePassEncoderSetBindGroup(pass, 0, group, 0, NULL);
+        wgpuComputePassEncoderDispatchWorkgroups(pass, (width + 7) / 8, (height + 7) / 8, 1);
+
+        wgpuBindGroupRelease(group);
+        wgpuTextureViewRelease(dstView);
+        wgpuTextureViewRelease(srcView);
+    }
+
+    wgpuComputePassEncoderPopDebugGroup(pass);
+    wgpuComputePassEncoderEnd(pass);
+    wgpuComputePassEncoderRelease(pass);
+
+    // The queue does this work before the commands of the next frame.
+    WGPUCommandBuffer commands = wgpuCommandEncoderFinish(encoder, NULL);
+    wgpuQueueSubmit(wg.queue, 1, &commands);
+    wgpuCommandBufferRelease(commands);
+    wgpuCommandEncoderRelease(encoder);
+}
+
+
 void wgpu_createTextureResources(void)
 {
     // Group 1 and group 2: the texture at binding 0, the sampler at binding 1.
@@ -47,11 +231,16 @@ void wgpu_createTextureResources(void)
             wg.samplers[mipmap][repeat] = wgpuDeviceCreateSampler(wg.device, &desc);
         }
     }
+
+    if (wg.heavyCoverage)
+        wgpu_createMipmapResources();
 }
 
 
 void wgpu_releaseTextureResources(void)
 {
+    wgpu_releaseMipmapResources();
+
     int mipmap, repeat;
     for (mipmap = 0; mipmap < 2; mipmap++)
     {
@@ -85,6 +274,9 @@ gapi_texture_t* gapi_createTexture(uint32_t width, uint32_t height, uint32_t mip
 
     WGPUTextureDescriptor desc = WGPU_TEXTURE_DESCRIPTOR_INIT;
     desc.usage = WGPUTextureUsage_TextureBinding | WGPUTextureUsage_CopyDst;
+    // gapi_generateMipmaps writes levels 1 and higher as storage textures.
+    if (s_mipmapPipeline != NULL && mipLevels > 1)
+        desc.usage |= WGPUTextureUsage_StorageBinding;
     desc.dimension = WGPUTextureDimension_2D;
     desc.size.width = width;
     desc.size.height = height;

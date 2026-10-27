@@ -27,6 +27,7 @@ typedef struct gapi_pipeline_s gapi_pipeline_t;
 typedef struct {
 	qboolean fillModeLine;		// pipelines can draw triangles as lines (GLS_POLYMODE_LINE)
 	qboolean occlusionQueries;	// gapi_beginOcclusionQuery and the other occlusion query functions work
+	qboolean mipmapGeneration;	// gapi_generateMipmaps works
 	char vendor[256];			// for glConfig.vendor_string
 	char renderer[256];			// for glConfig.renderer_string
 	char version[256];			// for glConfig.version_string
@@ -143,6 +144,11 @@ gapi_texture_t* gapi_createTexture(uint32_t width, uint32_t height, uint32_t mip
 void gapi_uploadTexture(gapi_texture_t* tex, const unsigned char* rgba, uint32_t numLevels);
 
 void gapi_destroyTexture(gapi_texture_t* tex);
+
+// If gapi_caps_t.mipmapGeneration is qtrue: make levels 1 and higher of the
+// texture from level 0 on the GPU, with the 2x2 box filter of R_MipMap
+// (r_simpleMipMaps 1). The result is the same as the result of R_MipMap.
+void gapi_generateMipmaps(gapi_texture_t* tex);
 
 // Give the image name to the texture, for debug and capture tools. The WebGPU
 // backend sets the label only with r_apiCoverage heavy. The Vulkan backend does

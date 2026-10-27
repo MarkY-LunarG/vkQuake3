@@ -538,6 +538,13 @@ void gapi_uploadTexture(gapi_texture_t* tex, const unsigned char* rgba, uint32_t
 }
 
 
+// The Vulkan backend makes no mipmaps (gapi_caps_t.mipmapGeneration is qfalse).
+void gapi_generateMipmaps(gapi_texture_t* tex)
+{
+    (void)tex;
+}
+
+
 void gapi_setTextureName(gapi_texture_t* tex, const char* name)
 {
     (void)tex;

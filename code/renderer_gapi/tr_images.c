@@ -15,6 +15,9 @@
 #define FILE_HASH_SIZE	1024
 static image_t*	hashTable[FILE_HASH_SIZE];
 
+// The graphics API makes the mipmaps on the GPU (gapi_generateMipmaps).
+static qboolean s_gpuMipmaps = qfalse;
+
 static int generateHashValue( const char *fname )
 {
 	uint32_t i = 0;
@@ -129,6 +132,7 @@ image_t* R_CreateImage( const char *name, unsigned char* pic, const uint32_t wid
 
     // perform optional picmip operation
 
+    qboolean gpuMipmaps = qfalse;
 
     if(isMipMap)
     {
@@ -141,12 +145,20 @@ image_t* R_CreateImage( const char *name, unsigned char* pic, const uint32_t wid
 
         R_LightScaleTexture(pUploadBuffer, pUploadBuffer, buffer_size);
 
+        // The GPU can make the levels of R_MipMap. R_MipMap2 and the colored
+        // levels of r_colorMipLevels stay on the CPU.
+        gpuMipmaps = s_gpuMipmaps && r_simpleMipMaps->integer && !r_colorMipLevels->integer;
+
         // Use the normal mip-mapping to go down from [scaled_width, scaled_height] to [1,1] dimensions.
 
         while (1)
         {
 
-            if ( r_simpleMipMaps->integer )
+            if ( gpuMipmaps )
+            {
+                // gapi_generateMipmaps makes this level.
+            }
+            else if ( r_simpleMipMaps->integer )
             {
                 R_MipMap(in_ptr, base_width, base_height, dst_ptr);
             }
@@ -190,7 +202,9 @@ image_t* R_CreateImage( const char *name, unsigned char* pic, const uint32_t wid
     pImage->tex = gapi_createTexture(pImage->uploadWidth, pImage->uploadHeight, pImage->mipLevels,
             pImage->mipmap, pImage->wrapClampMode == GL_REPEAT ? qtrue : qfalse);
     gapi_setTextureName(pImage->tex, pImage->imgName);
-    gapi_uploadTexture(pImage->tex, pUploadBuffer, pImage->mipLevels);
+    gapi_uploadTexture(pImage->tex, pUploadBuffer, gpuMipmaps ? 1 : pImage->mipLevels);
+    if (gpuMipmaps)
+        gapi_generateMipmaps(pImage->tex);
 
 
     free(pUploadBuffer);
@@ -449,6 +463,12 @@ static void R_CreateScratchImage(void)
 void R_InitImages( void )
 {
     memset(hashTable, 0, sizeof(hashTable));
+
+    {
+        gapi_caps_t caps;
+        gapi_getCaps(&caps);
+        s_gpuMipmaps = caps.mipmapGeneration;
+    }
 
 	// setup the overbright lighting
 

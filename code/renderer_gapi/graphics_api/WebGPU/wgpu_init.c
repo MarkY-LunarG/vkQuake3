@@ -346,6 +346,8 @@ void gapi_getCaps(gapi_caps_t* caps)
     caps->fillModeLine = qfalse;
     // r_apiCoverage heavy: occlusion queries for the light flares (r_flares).
     caps->occlusionQueries = wg.heavyCoverage;
+    // r_apiCoverage heavy: the GPU makes the mipmaps of r_simpleMipMaps 1.
+    caps->mipmapGeneration = wgpu_mipmapGeneration();
 
     WGPUAdapterInfo info = WGPU_ADAPTER_INFO_INIT;
     if (wgpuAdapterGetInfo(wg.adapter, &info) == WGPUStatus_Success)

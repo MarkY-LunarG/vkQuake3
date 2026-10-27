@@ -122,6 +122,8 @@ void wgpu_releaseOcclusionResources(void);
 // wgpu_texture.c: the samplers and the texture bind group layout.
 void wgpu_createTextureResources(void);
 void wgpu_releaseTextureResources(void);
+// r_apiCoverage heavy: the GPU makes the mipmaps (gapi_generateMipmaps).
+qboolean wgpu_mipmapGeneration(void);
 
 // wgpu_pipeline.c: the shader modules and the pipeline layouts.
 void wgpu_createPipelineResources(void);

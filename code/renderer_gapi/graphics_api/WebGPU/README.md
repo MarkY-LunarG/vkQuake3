@@ -223,6 +223,11 @@ With `heavy`, the backend does these steps:
   Without `heavy`, and with the Vulkan backend, `r_flares` does nothing.
   The flares change the frames: compare the two paths with `r_flares 0`.
   For a capture with all the calls of `heavy`, add `+set r_flares 1`.
+- It makes the mipmaps on the GPU, with a compute pass for each texture
+  (`wgpuDeviceCreateComputePipelineAsync`, `wgpuCommandEncoderBeginComputePass`, the
+  `wgpuComputePassEncoder*` calls).
+  The compute shader does the integer arithmetic of `R_MipMap`, and thus the levels are the same.
+  `r_simpleMipMaps 0` and `r_colorMipLevels 1` keep the mipmaps on the CPU.
 - It puts an error scope around the creation of each shader module and of each synchronous
   render pipeline (`wgpuDevicePushErrorScope`, `wgpuDevicePopErrorScope`).
   The backend does not wait for the result of a scope.
@@ -258,16 +263,11 @@ Thus `cg_lagometer 0` removes it from the screenshot.
 
 ### More API coverage
 
-The items in this table are not done.
-The table names the calls that are not in a capture of `demo four` with `heavy`.
-Each item has a use in a real renderer.
-Put a new item behind `wg.heavyCoverage`, keep the frames the same, and add it to the list above.
+To add a step, put it behind `wg.heavyCoverage`, keep the frames the same, and add it to the
+list above.
+Use a step that has a use in a real renderer.
 
-| Item | Calls | Size | Work |
-|---|---|---|---|
-| GPU mipmaps | `wgpuDeviceCreateComputePipeline`, `wgpuDeviceCreateComputePipelineAsync`, the `wgpuComputePassEncoder*` calls | medium | Make the mipmap levels with a compute pass, not on the CPU |
-
-Render bundles and indirect draws are not in the table.
+Render bundles and indirect draws are not in the list.
 Q3 makes its geometry on the CPU for each frame, thus these calls have no real use in Q3.
 
 ## Backend
