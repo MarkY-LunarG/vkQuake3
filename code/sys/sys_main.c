@@ -287,6 +287,9 @@ void Sys_InitPIDFile( const char *gamedir ) {
 	}
 }
 
+// The SIGTERM or SIGINT that asks for a quit (Sys_QuitSigHandler), or 0.
+static volatile sig_atomic_t sys_quitSignal = 0;
+
 /*
 =================
 Sys_Exit
@@ -322,7 +325,8 @@ Sys_Quit
 */
 void Sys_Quit( void )
 {
-	Sys_Exit( 0 );
+	// A quit after SIGTERM or SIGINT keeps the exit code of a signal (1).
+	Sys_Exit( sys_quitSignal ? 1 : 0 );
 }
 
 /*
@@ -697,6 +701,39 @@ void Sys_SigHandler( int signal )
 
 /*
 =================
+Sys_QuitSigHandler
+
+SIGTERM and SIGINT ask for a normal quit. The signal can stop the main thread
+in any function, for example in a renderer or driver call. A shutdown in the
+handler can then free memory that the stopped function still uses. Thus the
+handler only records the signal, and Sys_CheckQuitSignal quits at the start of
+the next frame. A second signal exits immediately, because the main thread can
+be blocked before the next frame.
+=================
+*/
+static void Sys_QuitSigHandler( int signal )
+{
+	if( sys_quitSignal )
+		_Exit( 1 );
+
+	sys_quitSignal = signal;
+}
+
+#ifndef __EMSCRIPTEN__
+/*
+=================
+Sys_CheckQuitSignal
+=================
+*/
+static void Sys_CheckQuitSignal( void )
+{
+	if( sys_quitSignal )
+		Cbuf_ExecuteText( EXEC_NOW, va( "quit Received signal %d\n", (int)sys_quitSignal ) );
+}
+#endif
+
+/*
+=================
 main
 =================
 */
@@ -773,8 +810,8 @@ int main( int argc, char **argv )
 	signal( SIGILL, Sys_SigHandler );
 	signal( SIGFPE, Sys_SigHandler );
 	signal( SIGSEGV, Sys_SigHandler );
-	signal( SIGTERM, Sys_SigHandler );
-	signal( SIGINT, Sys_SigHandler );
+	signal( SIGTERM, Sys_QuitSigHandler );
+	signal( SIGINT, Sys_QuitSigHandler );
 
 #if defined(Q3_JSPI)
 	while( 1 )
@@ -788,6 +825,7 @@ int main( int argc, char **argv )
 #else
 	while( 1 )
 	{
+		Sys_CheckQuitSignal( );
 		Com_Frame( );
 	}
 #endif
