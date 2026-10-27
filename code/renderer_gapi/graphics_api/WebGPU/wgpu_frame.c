@@ -277,6 +277,9 @@ void gapi_beginFrame(void)
     if (!wg.initialized)
         return;
 
+    // r_apiCoverage heavy: wait for the pipelines before the frame starts.
+    wgpu_resolvePendingPipelines();
+
     // Run the callbacks: device loss, errors, and later, buffer maps.
     wgpuInstanceProcessEvents(wg.instance);
 

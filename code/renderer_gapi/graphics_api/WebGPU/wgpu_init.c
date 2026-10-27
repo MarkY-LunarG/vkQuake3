@@ -112,13 +112,14 @@ void wgpu_popErrorScope(const char* label)
     if (!wg.heavyCoverage)
         return;
 
+    // No wait: in a browser, a wait in a frame destroys the surface texture of
+    // the frame. gapi_beginFrame runs the callback before it examines the
+    // error count.
     WGPUPopErrorScopeCallbackInfo callback = WGPU_POP_ERROR_SCOPE_CALLBACK_INFO_INIT;
-    callback.mode = WGPUCallbackMode_WaitAnyOnly;
+    callback.mode = WGPUCallbackMode_AllowProcessEvents;
     callback.callback = wgpu_onPopErrorScope;
     callback.userdata1 = (void*)label;
-    WGPUFutureWaitInfo wait = WGPU_FUTURE_WAIT_INFO_INIT;
-    wait.future = wgpuDevicePopErrorScope(wg.device, callback);
-    wgpuInstanceWaitAny(wg.instance, 1, &wait, UINT64_MAX);
+    wgpuDevicePopErrorScope(wg.device, callback);
 }
 
 

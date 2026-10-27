@@ -191,6 +191,10 @@ static void wgpu_onRenderPipelineCreated(WGPUCreatePipelineAsyncStatus status, W
 }
 
 
+// r_apiCoverage heavy: the pipelines with an asynchronous build that did not complete.
+static gapi_pipeline_t* s_pendingPipelines = NULL;
+
+
 // Make the WebGPU pipeline. If asyncTarget is not NULL, start an asynchronous
 // build for asyncTarget and return NULL (r_apiCoverage heavy).
 static WGPURenderPipeline wgpu_createRenderPipeline(const gapi_pipelineDesc_t* def,
@@ -361,6 +365,11 @@ static WGPURenderPipeline wgpu_createRenderPipeline(const gapi_pipelineDesc_t* d
         callback.userdata1 = asyncTarget;
         asyncTarget->future = wgpuDeviceCreateRenderPipelineAsync(wg.device, &desc, callback);
         asyncTarget->pending = qtrue;
+        asyncTarget->pendingPrev = NULL;
+        asyncTarget->pendingNext = s_pendingPipelines;
+        if (s_pendingPipelines)
+            s_pendingPipelines->pendingPrev = asyncTarget;
+        s_pendingPipelines = asyncTarget;
         return NULL;
     }
 
@@ -383,10 +392,12 @@ gapi_pipeline_t* gapi_createPipeline(const gapi_pipelineDesc_t* desc)
     // The first draw gives the depth bias. Until then, use the r_offset cvars.
     pipeline->depthBiasConstant = ri.Cvar_Get("r_offsetunits", "-2", CVAR_CHEAT)->value;
     pipeline->depthBiasSlope = ri.Cvar_Get("r_offsetfactor", "-1", CVAR_CHEAT)->value;
-    // r_apiCoverage heavy: start the build here, and wait for it at the first
-    // draw. The level load makes most of the pipelines before the first frame.
+    // r_apiCoverage heavy: start the build here. The next gapi_beginFrame waits
+    // for it. The level load makes most of the pipelines between frames. In a
+    // frame, build synchronously: a wait in a frame destroys the surface texture
+    // of the frame in a browser.
     pipeline->pipeline = wgpu_createRenderPipeline(desc, pipeline->depthBiasConstant, pipeline->depthBiasSlope,
-            wg.heavyCoverage ? pipeline : NULL);
+            (wg.heavyCoverage && !wg.frameActive) ? pipeline : NULL);
     return pipeline;
 }
 
@@ -401,11 +412,27 @@ void wgpu_resolvePipeline(gapi_pipeline_t* pipeline)
     wgpuInstanceWaitAny(wg.instance, 1, &wait, UINT64_MAX);
     pipeline->pending = qfalse;
 
+    if (pipeline->pendingPrev)
+        pipeline->pendingPrev->pendingNext = pipeline->pendingNext;
+    else
+        s_pendingPipelines = pipeline->pendingNext;
+    if (pipeline->pendingNext)
+        pipeline->pendingNext->pendingPrev = pipeline->pendingPrev;
+    pipeline->pendingPrev = NULL;
+    pipeline->pendingNext = NULL;
+
     // If the asynchronous build failed, a synchronous build reports the
     // validation error through its error scope.
     if (pipeline->pipeline == NULL)
         pipeline->pipeline = wgpu_createRenderPipeline(&pipeline->desc, pipeline->depthBiasConstant,
                 pipeline->depthBiasSlope, NULL);
+}
+
+
+void wgpu_resolvePendingPipelines(void)
+{
+    while (s_pendingPipelines)
+        wgpu_resolvePipeline(s_pendingPipelines);
 }
 
 

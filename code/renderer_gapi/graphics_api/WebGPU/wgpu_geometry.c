@@ -320,7 +320,10 @@ void gapi_draw(const gapi_pipeline_t* pipeline, const gapi_draw_t* draw)
     }
     s_geo.color_st_elements += draw->numVertexes;
 
-    // r_apiCoverage heavy: the first draw waits for the asynchronous build.
+    // r_apiCoverage heavy: gapi_beginFrame waited for the asynchronous builds,
+    // and a pipeline made in a frame has a synchronous build. Thus this call
+    // does not wait. It stays for a pipeline that a later change makes in
+    // another way.
     wgpu_resolvePipeline((gapi_pipeline_t*)pipeline);
     // WebGPU has no dynamic depth bias: the pipeline has the bias.
     wgpu_updatePipelineDepthBias((gapi_pipeline_t*)pipeline, draw->depthBiasConstant, draw->depthBiasSlope);

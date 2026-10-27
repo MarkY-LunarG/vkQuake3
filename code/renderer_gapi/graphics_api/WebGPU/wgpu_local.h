@@ -98,6 +98,8 @@ struct gapi_pipeline_s {
 	// until wgpu_resolvePipeline waits for the future.
 	qboolean pending;
 	WGPUFuture future;
+	struct gapi_pipeline_s* pendingPrev;	// the list of pending builds
+	struct gapi_pipeline_s* pendingNext;
 };
 
 // wgpu_surface_sdl.c: make the surface for the window.
@@ -119,6 +121,10 @@ void wgpu_updatePipelineDepthBias(gapi_pipeline_t* pipeline, float constant, flo
 // Wait for an asynchronous pipeline build (r_apiCoverage heavy). Call it before
 // the first use of the pipeline.
 void wgpu_resolvePipeline(gapi_pipeline_t* pipeline);
+// Wait for all the asynchronous pipeline builds. gapi_beginFrame calls it before
+// it gets the surface texture: a browser destroys the surface texture of a frame
+// when a wait in the frame gives control back to the browser.
+void wgpu_resolvePendingPipelines(void);
 
 // wgpu_geometry.c: the vertex shader constants and the geometry buffers.
 void wgpu_createGeometryResources(void);
@@ -140,8 +146,9 @@ void wgpu_keepLastFrame(void);
 void wgpu_blitToSurface(void);
 
 // wgpu_init.c, r_apiCoverage heavy: an error scope around the creation of an
-// object. wgpu_popErrorScope waits for the result, and prints an error with the
-// label. With the default path, the two functions do nothing.
+// object. wgpu_popErrorScope does not wait: the next wgpuInstanceProcessEvents
+// prints an error with the label. Thus the label must be a static string. With
+// the default path, the two functions do nothing.
 void wgpu_pushErrorScope(void);
 void wgpu_popErrorScope(const char* label);
 

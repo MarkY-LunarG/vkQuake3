@@ -195,7 +195,10 @@ With `heavy`, the backend does these steps:
 - It puts each view (world, portal, mirror, or model) into a render pass debug group.
   It puts the copies at the end of the frame into a command encoder debug group.
 - It makes the render pipelines with `wgpuDeviceCreateRenderPipelineAsync`.
-  The first draw with a pipeline waits for it with `wgpuInstanceWaitAny`.
+  The start of the next frame waits for the builds with `wgpuInstanceWaitAny`.
+  A pipeline that is made during a frame has a synchronous build.
+  In a browser, a wait during a frame gives control back to the browser, and the browser then
+  destroys the surface texture of the frame.
 - `gapiInfo` and `vkinfo` also print the adapter information of the device, the device limits,
   the device and instance features, the instance limits, and the WGSL language features.
 - `gapiInfo` and `vkinfo` also print the adapter limits and features
@@ -207,7 +210,9 @@ With `heavy`, the backend does these steps:
   (`wgpuRenderPassEncoderInsertDebugMarker`, `wgpuCommandEncoderInsertDebugMarker`).
 - It puts an error scope around the creation of each shader module and of each synchronous
   render pipeline (`wgpuDevicePushErrorScope`, `wgpuDevicePopErrorScope`).
-  An error in a scope prints the name of the object, and counts for `r_webgpuFatalErrors`.
+  The backend does not wait for the result of a scope.
+  At the start of the next frame, an error prints the name of the object, and counts for
+  `r_webgpuFatalErrors`.
 - It prints the WGSL compiler messages of each shader module (`wgpuShaderModuleGetCompilationInfo`).
 - It gives the image name to each texture (`wgpuTextureSetLabel`).
 - At the start of each frame, it examines the device-lost future (`wgpuDeviceGetLostFuture`)
@@ -226,12 +231,15 @@ Take a screenshot at the same frame of a demo with each value, and compare the f
 for mode in default heavy; do
     build/release-linux-x86_64/ioquake3.x86_64 +set fs_basepath "<Quake 3 directory>" \
         +set cl_renderer webgpu +set r_apiCoverage $mode +set r_webgpuFatalErrors 1 \
-        +set timedemo 1 +demo four +wait 600 +screenshot cov_$mode +wait 10 +quit
+        +set cg_lagometer 0 +set timedemo 1 +demo four +wait 600 +screenshot cov_$mode \
+        +wait 10 +quit
 done
 md5sum ~/.q3a/baseq3/screenshots/cov_*.tga
 ```
 
 The screenshot runs in the frame after the command, thus `+wait 10` comes before `+quit`.
+The lagometer shows the time of each frame, and the time is not the same in two runs.
+Thus `cg_lagometer 0` removes it from the screenshot.
 
 ### More API coverage
 
