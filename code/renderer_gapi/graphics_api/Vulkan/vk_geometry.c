@@ -573,3 +573,25 @@ void gapi_insertDebugMarker(const char* name)
 {
     (void)name;
 }
+
+
+// The Vulkan backend has no occlusion queries (gapi_caps_t.occlusionQueries is qfalse).
+void gapi_beginOcclusionQuery(uint32_t index, uint32_t tag)
+{
+    (void)index;
+    (void)tag;
+}
+
+
+void gapi_endOcclusionQuery(void)
+{
+}
+
+
+qboolean gapi_getOcclusionResult(uint32_t index, uint32_t* tag, uint64_t* samples)
+{
+    (void)index;
+    (void)tag;
+    (void)samples;
+    return qfalse;
+}

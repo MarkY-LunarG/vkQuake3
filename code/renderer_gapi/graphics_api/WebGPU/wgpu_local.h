@@ -115,6 +115,9 @@ void wgpu_releaseFrameResources(void);
 void wgpu_createTimingResources(void);
 void wgpu_releaseTimingResources(void);
 void wgpu_printTimingInfo(void);
+// wgpu_frame.c, r_apiCoverage heavy: the occlusion queries (gapi_beginOcclusionQuery).
+void wgpu_createOcclusionResources(void);
+void wgpu_releaseOcclusionResources(void);
 
 // wgpu_texture.c: the samplers and the texture bind group layout.
 void wgpu_createTextureResources(void);

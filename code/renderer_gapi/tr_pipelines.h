@@ -40,6 +40,10 @@ struct GlobalPipelineManager {
 	gapi_pipeline_t* surface_debug_pipeline_solid;
 	gapi_pipeline_t* surface_debug_pipeline_outline;
 	gapi_pipeline_t* images_debug_pipeline;
+
+	// light flare visibility test: depth test, no depth or color writes. NULL
+	// without occlusion queries (gapi_caps_t).
+	gapi_pipeline_t* flare_test_pipeline;
 };
 
 extern struct GlobalPipelineManager g_stdPipelines;

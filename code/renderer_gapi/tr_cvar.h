@@ -11,6 +11,10 @@ extern cvar_t	*r_railSegmentLength;
 extern cvar_t	*r_verbose;				// used for verbose debug spew
 
 extern cvar_t	*r_znear;				// near Z clip plane
+extern cvar_t	*r_flares;				// light flares (needs occlusion queries, gapi_caps_t)
+extern cvar_t	*r_flareSize;
+extern cvar_t	*r_flareFade;
+extern cvar_t	*r_flareCoeff;
 
 
 extern cvar_t	*r_depthbits;			// number of desired depth bits

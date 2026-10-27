@@ -40,6 +40,7 @@ typedef struct {
     shader_t                *cinematicShader;
 	shader_t				*shadowShader;
 	shader_t				*projectionShadowShader;
+	shader_t				*flareShader;			// NULL without occlusion queries
 
 	int						numLightmaps;
 	image_t					*lightmaps[MAX_LIGHTMAPS];

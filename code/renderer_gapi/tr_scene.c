@@ -48,6 +48,7 @@ static int	r_firstScenePoly;
 static int	r_numpolyverts;
 
 static int	r_frameCount;	// incremented every frame
+static int	r_frameSceneNum;	// zeroed for each frame, incremented for each scene
 
 
 
@@ -85,6 +86,7 @@ void R_InitNextFrame(void)
 	r_numpolyverts = 0;
 
     r_frameCount++;
+    r_frameSceneNum = 0;
 }
 
 
@@ -408,6 +410,8 @@ void RE_RenderScene( const refdef_t *fd )
 
     Mat3x3Copy(parms.or.axis, fd->viewaxis);
 	parms.isPortal = qfalse;
+	parms.frameSceneNum = r_frameSceneNum++;
+	parms.frameCount = r_frameCount;
 
 	if ( (parms.viewportWidth > 0) && (parms.viewportHeight > 0) ) 
     {

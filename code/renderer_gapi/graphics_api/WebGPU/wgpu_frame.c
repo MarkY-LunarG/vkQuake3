@@ -157,6 +157,210 @@ static void wgpu_readTiming(void)
 }
 
 
+// r_apiCoverage heavy: the occlusion queries of gapi_beginOcclusionQuery. Each
+// slot of a ring has GAPI_MAX_OCCLUSION_QUERIES queries in one query set, and
+// the render pass of a frame uses the queries of one slot. As for the
+// timestamps, a map without a wait reads the results some frames later.
+#define OCCLUSION_SLOTS 3
+#define OCCLUSION_SLOT_BYTES (GAPI_MAX_OCCLUSION_QUERIES * sizeof(uint64_t))	// a multiple of 256
+
+typedef struct {
+    WGPUQuerySet querySet;					// GAPI_MAX_OCCLUSION_QUERIES queries for each slot
+    WGPUBuffer resolveBuffer;				// OCCLUSION_SLOT_BYTES for each slot
+    WGPUBuffer readBuffers[OCCLUSION_SLOTS];
+    qboolean busy[OCCLUSION_SLOTS];			// the map of the read buffer did not complete
+    uint32_t count[OCCLUSION_SLOTS];		// the highest index that the frame used, plus 1
+    uint32_t used[OCCLUSION_SLOTS][GAPI_MAX_OCCLUSION_QUERIES / 32];	// the indexes that the frame used
+    uint32_t tags[OCCLUSION_SLOTS][GAPI_MAX_OCCLUSION_QUERIES];
+    uint32_t next;							// the slot of the next frame
+    int current;							// the slot of this frame, or -1
+    qboolean open;							// a query started and did not end
+
+    // The newest result of each index, until gapi_getOcclusionResult gives it.
+    qboolean ready[GAPI_MAX_OCCLUSION_QUERIES];
+    uint32_t resultTags[GAPI_MAX_OCCLUSION_QUERIES];
+    uint64_t results[GAPI_MAX_OCCLUSION_QUERIES];
+} wgpuOcclusion_t;
+
+static wgpuOcclusion_t s_occlusion;
+
+
+void wgpu_createOcclusionResources(void)
+{
+    memset(&s_occlusion, 0, sizeof(s_occlusion));
+    s_occlusion.current = -1;
+    if (!wg.heavyCoverage)
+        return;
+
+    WGPUQuerySetDescriptor queryDesc = WGPU_QUERY_SET_DESCRIPTOR_INIT;
+    queryDesc.label = wgpu_stringView("occlusion queries");
+    queryDesc.type = WGPUQueryType_Occlusion;
+    queryDesc.count = GAPI_MAX_OCCLUSION_QUERIES * OCCLUSION_SLOTS;
+    s_occlusion.querySet = wgpuDeviceCreateQuerySet(wg.device, &queryDesc);
+
+    WGPUBufferDescriptor bufferDesc = WGPU_BUFFER_DESCRIPTOR_INIT;
+    bufferDesc.label = wgpu_stringView("occlusion queries resolve");
+    bufferDesc.usage = WGPUBufferUsage_QueryResolve | WGPUBufferUsage_CopySrc;
+    bufferDesc.size = OCCLUSION_SLOT_BYTES * OCCLUSION_SLOTS;
+    s_occlusion.resolveBuffer = wgpuDeviceCreateBuffer(wg.device, &bufferDesc);
+
+    uint32_t i;
+    for (i = 0; i < OCCLUSION_SLOTS; i++)
+    {
+        bufferDesc.label = wgpu_stringView("occlusion queries read");
+        bufferDesc.usage = WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst;
+        bufferDesc.size = OCCLUSION_SLOT_BYTES;
+        s_occlusion.readBuffers[i] = wgpuDeviceCreateBuffer(wg.device, &bufferDesc);
+    }
+}
+
+
+void wgpu_releaseOcclusionResources(void)
+{
+    uint32_t i;
+    for (i = 0; i < OCCLUSION_SLOTS; i++)
+    {
+        if (s_occlusion.readBuffers[i])
+            wgpuBufferRelease(s_occlusion.readBuffers[i]);
+    }
+    if (s_occlusion.resolveBuffer)
+        wgpuBufferRelease(s_occlusion.resolveBuffer);
+    if (s_occlusion.querySet)
+    {
+        wgpuQuerySetDestroy(s_occlusion.querySet);
+        wgpuQuerySetRelease(s_occlusion.querySet);
+    }
+    // A map that did not complete calls wgpu_onOcclusionMapped with a failure
+    // status. That callback does not use the released objects.
+    memset(&s_occlusion, 0, sizeof(s_occlusion));
+    s_occlusion.current = -1;
+}
+
+
+// Select the slot of this frame. Return qfalse when no slot is free: the
+// queries of this frame then do nothing.
+static qboolean wgpu_beginOcclusion(void)
+{
+    s_occlusion.current = -1;
+    s_occlusion.open = qfalse;
+    if (s_occlusion.querySet == NULL || s_occlusion.busy[s_occlusion.next])
+        return qfalse;
+
+    const uint32_t slot = s_occlusion.next;
+    s_occlusion.current = (int)slot;
+    s_occlusion.next = (slot + 1) % OCCLUSION_SLOTS;
+    s_occlusion.count[slot] = 0;
+    memset(s_occlusion.used[slot], 0, sizeof(s_occlusion.used[slot]));
+    return qtrue;
+}
+
+
+void gapi_beginOcclusionQuery(uint32_t index, uint32_t tag)
+{
+    if (!wg.frameActive || s_occlusion.current < 0 || s_occlusion.open || index >= GAPI_MAX_OCCLUSION_QUERIES)
+        return;
+
+    const uint32_t slot = (uint32_t)s_occlusion.current;
+    const uint32_t bit = 1u << (index % 32);
+    if (s_occlusion.used[slot][index / 32] & bit)
+        return;		// a render pass can use a query only one time
+
+    s_occlusion.used[slot][index / 32] |= bit;
+    s_occlusion.tags[slot][index] = tag;
+    if (index + 1 > s_occlusion.count[slot])
+        s_occlusion.count[slot] = index + 1;
+
+    wgpuRenderPassEncoderBeginOcclusionQuery(wg.pass, slot * GAPI_MAX_OCCLUSION_QUERIES + index);
+    s_occlusion.open = qtrue;
+}
+
+
+void gapi_endOcclusionQuery(void)
+{
+    if (!s_occlusion.open)
+        return;
+    wgpuRenderPassEncoderEndOcclusionQuery(wg.pass);
+    s_occlusion.open = qfalse;
+}
+
+
+qboolean gapi_getOcclusionResult(uint32_t index, uint32_t* tag, uint64_t* samples)
+{
+    if (index >= GAPI_MAX_OCCLUSION_QUERIES || !s_occlusion.ready[index])
+        return qfalse;
+
+    s_occlusion.ready[index] = qfalse;
+    *tag = s_occlusion.resultTags[index];
+    *samples = s_occlusion.results[index];
+    return qtrue;
+}
+
+
+// After the render pass: copy the results of this frame to the read buffer.
+static void wgpu_resolveOcclusion(void)
+{
+    if (s_occlusion.current < 0)
+        return;
+
+    const uint32_t slot = (uint32_t)s_occlusion.current;
+    const uint32_t count = s_occlusion.count[slot];
+    if (count == 0)
+    {
+        s_occlusion.current = -1;	// no queries in this frame
+        return;
+    }
+
+    wgpuCommandEncoderResolveQuerySet(wg.encoder, s_occlusion.querySet, slot * GAPI_MAX_OCCLUSION_QUERIES, count,
+            s_occlusion.resolveBuffer, (uint64_t)OCCLUSION_SLOT_BYTES * slot);
+    wgpuCommandEncoderCopyBufferToBuffer(wg.encoder, s_occlusion.resolveBuffer, (uint64_t)OCCLUSION_SLOT_BYTES * slot,
+            s_occlusion.readBuffers[slot], 0, (uint64_t)count * sizeof(uint64_t));
+}
+
+
+static void wgpu_onOcclusionMapped(WGPUMapAsyncStatus status, WGPUStringView message, void* userdata1, void* userdata2)
+{
+    const uint32_t slot = (uint32_t)(uintptr_t)userdata1;
+    s_occlusion.busy[slot] = qfalse;
+    if (status != WGPUMapAsyncStatus_Success)
+        return;
+
+    const uint32_t count = s_occlusion.count[slot];
+    const uint64_t* samples = (const uint64_t*)wgpuBufferGetConstMappedRange(s_occlusion.readBuffers[slot], 0,
+            (size_t)count * sizeof(uint64_t));
+    if (samples)
+    {
+        uint32_t i;
+        for (i = 0; i < count; i++)
+        {
+            if (!(s_occlusion.used[slot][i / 32] & (1u << (i % 32))))
+                continue;
+            s_occlusion.results[i] = samples[i];
+            s_occlusion.resultTags[i] = s_occlusion.tags[slot][i];
+            s_occlusion.ready[i] = qtrue;
+        }
+    }
+    wgpuBufferUnmap(s_occlusion.readBuffers[slot]);
+}
+
+
+// After the submit: start the map of the read buffer, without a wait.
+static void wgpu_readOcclusion(void)
+{
+    if (s_occlusion.current < 0)
+        return;
+
+    const uint32_t slot = (uint32_t)s_occlusion.current;
+    WGPUBufferMapCallbackInfo callback = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT;
+    callback.mode = WGPUCallbackMode_AllowProcessEvents;
+    callback.callback = wgpu_onOcclusionMapped;
+    callback.userdata1 = (void*)(uintptr_t)slot;
+    s_occlusion.busy[slot] = qtrue;
+    wgpuBufferMapAsync(s_occlusion.readBuffers[slot], WGPUMapMode_Read, 0,
+            (size_t)s_occlusion.count[slot] * sizeof(uint64_t), callback);
+    s_occlusion.current = -1;
+}
+
+
 void wgpu_printTimingInfo(void)
 {
     if (!wg.timestampQuery)
@@ -509,6 +713,9 @@ void gapi_beginFrame(void)
     WGPUPassTimestampWrites timestamps = WGPU_PASS_TIMESTAMP_WRITES_INIT;
     if (wgpu_beginTiming(&timestamps))
         passDesc.timestampWrites = &timestamps;
+    // r_apiCoverage heavy: the occlusion queries of the flares.
+    if (wgpu_beginOcclusion())
+        passDesc.occlusionQuerySet = s_occlusion.querySet;
 
     wg.pass = wgpuCommandEncoderBeginRenderPass(wg.encoder, &passDesc);
 
@@ -523,8 +730,10 @@ void gapi_endFrame(void)
     if (!wg.frameActive)
         return;
 
+    gapi_endOcclusionQuery();
     wgpuRenderPassEncoderEnd(wg.pass);
     wgpu_resolveTiming();
+    wgpu_resolveOcclusion();
 
     // Write the vertex data and the vertex shader constants of the frame.
     // The queue does the writes before the commands of the frame.
@@ -553,6 +762,7 @@ void gapi_endFrame(void)
     wgpuQueueSubmit(wg.queue, 1, &commands);
     wgpuCommandBufferRelease(commands);
     wgpu_readTiming();
+    wgpu_readOcclusion();
 
     // The only call to wgpuSurfacePresent. A browser presents by itself.
 #ifndef __EMSCRIPTEN__

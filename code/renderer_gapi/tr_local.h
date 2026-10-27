@@ -416,6 +416,8 @@ typedef struct {
 	cplane_t	frustum[4];
 	vec3_t		visBounds[2];
 	float		zFar;
+	int			frameSceneNum;		// the number of this scene in the frame (light flares)
+	int			frameCount;			// the number of the frame (light flares)
 } viewParms_t;
 
 

@@ -23,17 +23,14 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "ref_import.h"
 
 #include "tr_local.h"
-
-extern cvar_t* r_flares;
-
-void RB_SurfaceFlare(srfFlare_t *surf)
-{
-	if (r_flares->integer)
-    {
-        ri.Printf(PRINT_DEVELOPER, "I'm so weak, don't know how to implement this.\n");
-		// RB_AddFlare(surf, tess.fogNum, surf->origin, surf->color, surf->normal);
-    }
-}
+#include "tr_globals.h"
+#include "tr_backend.h"
+#include "tr_cvar.h"
+#include "tr_flares.h"
+#include "tr_pipelines.h"
+#include "tr_shade_geometry.h"
+#include "tr_state_bits.h"
+#include "tr_shader.h"
 
 /*
 =============================================================================
@@ -64,19 +61,29 @@ RB_RenderFlares() will be called once per view (twice in a mirrored scene, poten
 up to five or more times in a frame with 3D status bar icons).
 
 =============================================================================
+
+This file is the flare code of ioq3 (renderergl1/tr_flares.c), with these
+changes for the graphics API interface:
+
+- An occlusion query replaces the read of the depth buffer. A small quad 24
+  units in front of the flare tests the depth, and the result of an earlier
+  frame tells if the flare is visible. Thus the flares need occlusion queries
+  (gapi_caps_t). Without them, r_flares does nothing.
+- A flare is a quad in world space at the flare origin, with the size in pixels
+  of the ioq3 screen quad. The flare shader has no depth test.
+- Only the main view has flares, not the portal and the mirror views.
+- The dynamic lights add no flares, as in the ioq3 code.
 */
 
+#define FLARE_STDCOEFF		"150"
+#define MAX_FLARES			GAPI_MAX_OCCLUSION_QUERIES	// the index of a flare is its query index
 
 // flare states maintain visibility over multiple frames for fading
-// layers: view, mirror, menu
-/*
-
 typedef struct flare_s {
 	struct		flare_s	*next;		// for active chain
 
 	int			addedFrame;
 
-	qboolean	inPortal;				// true if in a portal view of the scene
 	int			frameSceneNum;
 	void		*surface;
 	int			fogNum;
@@ -86,25 +93,35 @@ typedef struct flare_s {
 	qboolean	visible;			// state of last test
 	float		drawIntensity;		// may be non 0 even if !visible due to fading
 
-	int			windowX, windowY;
+	uint32_t	tag;				// the tag of the queries of this flare
+	qboolean	waiting;			// no query result yet: do not remove the flare
+
 	float		eyeZ;
 
 	vec3_t		origin;
 	vec3_t		color;
 } flare_t;
 
-#define		MAX_FLARES		256
+static flare_t		r_flareStructs[MAX_FLARES];
+static flare_t		*r_activeFlares, *r_inactiveFlares;
 
-flare_t		r_flareStructs[MAX_FLARES];
-flare_t		*r_activeFlares, *r_inactiveFlares;
+static float		flareCoeff;
+static uint32_t		s_flareTag;
+static qboolean		s_flaresSupported;
 
-int flareCoeff;
+
+static qboolean R_FlaresSupported( void ) {
+	gapi_caps_t caps;
+	gapi_getCaps( &caps );
+	return caps.occlusionQueries;
+}
 
 
+/*
 ==================
 R_SetFlareCoeff
 ==================
-
+*/
 static void R_SetFlareCoeff( void ) {
 
 	if(r_flareCoeff->value == 0.0f)
@@ -112,12 +129,44 @@ static void R_SetFlareCoeff( void ) {
 	else
 		flareCoeff = r_flareCoeff->value;
 }
+
+
+/*
+==================
+R_InitFlareShader
+
+The shader is loaded only with occlusion queries, so that the pipelines of
+the other renderers do not change.
+==================
 */
+void R_InitFlareShader( void ) {
+	int index;
+
+	tr.flareShader = NULL;
+	if ( !R_FlaresSupported() ) {
+		return;
+	}
+
+	tr.flareShader = R_FindShader( "flareShader", LIGHTMAP_NONE, qtrue );
+
+	// Hack to make fogging work correctly on flares. Fog colors are calculated
+	// in tr_flare.c already. The stage pipelines must be made again for the
+	// new state bits.
+	if ( !tr.flareShader->defaultShader ) {
+		for ( index = 0; index < tr.flareShader->numUnfoggedPasses; index++ ) {
+			tr.flareShader->stages[index]->adjustColorsForFog = ACFF_NONE;
+			tr.flareShader->stages[index]->stateBits |= GLS_DEPTHTEST_DISABLE;
+			create_pipelines_for_each_stage( tr.flareShader->stages[index], tr.flareShader );
+		}
+	}
+}
+
+
 /*
 ==================
 R_ClearFlares
 ==================
-
+*/
 void R_ClearFlares( void ) {
 	int		i;
 
@@ -130,9 +179,32 @@ void R_ClearFlares( void ) {
 		r_inactiveFlares = &r_flareStructs[i];
 	}
 
+	s_flaresSupported = R_FlaresSupported();
 	R_SetFlareCoeff();
 }
-*/
+
+
+static void R_TransformModelToClip( const vec3_t src, const float *modelMatrix, const float *projectionMatrix,
+							vec4_t eye, vec4_t dst ) {
+	int i;
+
+	for ( i = 0 ; i < 4 ; i++ ) {
+		eye[i] =
+			src[0] * modelMatrix[ i + 0 * 4 ] +
+			src[1] * modelMatrix[ i + 1 * 4 ] +
+			src[2] * modelMatrix[ i + 2 * 4 ] +
+			1 * modelMatrix[ i + 3 * 4 ];
+	}
+
+	for ( i = 0 ; i < 4 ; i++ ) {
+		dst[i] =
+			eye[0] * projectionMatrix[ i + 0 * 4 ] +
+			eye[1] * projectionMatrix[ i + 1 * 4 ] +
+			eye[2] * projectionMatrix[ i + 2 * 4 ] +
+			eye[3] * projectionMatrix[ i + 3 * 4 ];
+	}
+}
+
 
 /*
 ==================
@@ -140,20 +212,25 @@ RB_AddFlare
 
 This is called at surface tesselation time
 ==================
-
-void RB_AddFlare( void *surface, int fogNum, vec3_t point, vec3_t color, vec3_t normal ) {
+*/
+static void RB_AddFlare( void *surface, int fogNum, vec3_t point, vec3_t color, vec3_t normal ) {
 	int				i;
 	flare_t			*f;
 	vec3_t			local;
 	float			d = 1;
-	vec4_t			eye, clip, normalized, window;
+	vec4_t			eye, clip;
+	uint32_t		tag;
+	uint64_t		samples;
 
-	backEnd.pc.c_flareAdds++;
+	// only the main view has flares (mirrors are portals too)
+	if ( backEnd.viewParms.isPortal ) {
+		return;
+	}
 
 	if(normal && (normal[0] || normal[1] || normal[2]))
 	{
 		VectorSubtract( backEnd.viewParms.or.origin, point, local );
-		FastNormalize1f(local);
+		VectorNormalize( local );
 		d = DotProduct(local, normal);
 
 		// If the viewer is behind the flare don't add it.
@@ -163,27 +240,22 @@ void RB_AddFlare( void *surface, int fogNum, vec3_t point, vec3_t color, vec3_t 
 
 	// if the point is off the screen, don't bother adding it
 	// calculate screen coordinates and depth
-	R_TransformModelToClip( point, backEnd.or.modelMatrix, 
+	R_TransformModelToClip( point, backEnd.or.modelMatrix,
 		backEnd.viewParms.projectionMatrix, eye, clip );
 
-	// check to see if the point is completely off screen
-	for ( i = 0 ; i < 3 ; i++ ) {
+	// check to see if the point is behind the viewer or completely off screen
+	if ( clip[3] <= 0 ) {
+		return;
+	}
+	for ( i = 0 ; i < 2 ; i++ ) {
 		if ( clip[i] >= clip[3] || clip[i] <= -clip[3] ) {
 			return;
 		}
 	}
 
-	R_TransformClipToWindow( clip, &backEnd.viewParms, normalized, window );
-
-	if ( window[0] < 0 || window[0] >= backEnd.viewParms.viewportWidth
-		|| window[1] < 0 || window[1] >= backEnd.viewParms.viewportHeight ) {
-		return;	// shouldn't happen, since we check the clip[] above, except for FP rounding
-	}
-
-	// see if a flare with a matching surface, scene, and view exists
+	// see if a flare with a matching surface and scene exists
 	for ( f = r_activeFlares ; f ; f = f->next ) {
-		if ( f->surface == surface && f->frameSceneNum == backEnd.viewParms.frameSceneNum
-			&& f->inPortal == backEnd.viewParms.isPortal ) {
+		if ( f->surface == surface && f->frameSceneNum == backEnd.viewParms.frameSceneNum ) {
 			break;
 		}
 	}
@@ -201,13 +273,18 @@ void RB_AddFlare( void *surface, int fogNum, vec3_t point, vec3_t color, vec3_t 
 
 		f->surface = surface;
 		f->frameSceneNum = backEnd.viewParms.frameSceneNum;
-		f->inPortal = backEnd.viewParms.isPortal;
 		f->addedFrame = -1;
+
+		// a new tag: the results of the queries of an earlier flare in this
+		// slot do not count
+		f->tag = ++s_flareTag;
+		f->waiting = qtrue;
+		gapi_getOcclusionResult( (uint32_t)( f - r_flareStructs ), &tag, &samples );
 	}
 
 	if ( f->addedFrame != backEnd.viewParms.frameCount - 1 ) {
 		f->visible = qfalse;
-		f->fadeTime = backEnd.refdef.time - 2000;
+		f->fadeTime = backEnd.refdef.rd.time - 2000;
 	}
 
 	f->addedFrame = backEnd.viewParms.frameCount;
@@ -218,61 +295,20 @@ void RB_AddFlare( void *surface, int fogNum, vec3_t point, vec3_t color, vec3_t 
 
 	// fade the intensity of the flare down as the
 	// light surface turns away from the viewer
-	VectorScale( f->color, d, f->color ); 
-
-	// save info needed to test
-	f->windowX = backEnd.viewParms.viewportX + window[0];
-	f->windowY = backEnd.viewParms.viewportY + window[1];
+	VectorScale( f->color, d, f->color );
 
 	f->eyeZ = eye[2];
 }
-*/
-/*
-==================
-RB_AddDlightFlares
-==================
 
-void RB_AddDlightFlares( void ) {
-	dlight_t		*l;
-	int				i, j, k;
-	fog_t			*fog = NULL;
 
-	if ( !r_flares->integer ) {
-		return;
-	}
-
-	l = backEnd.refdef.dlights;
-
-	if(tr.world)
-		fog = tr.world->fogs;
-
-	for (i=0 ; i<backEnd.refdef.num_dlights ; i++, l++) {
-
-		if(fog)
-		{
-			// find which fog volume the light is in 
-			for ( j = 1 ; j < tr.world->numfogs ; j++ ) {
-				fog = &tr.world->fogs[j];
-				for ( k = 0 ; k < 3 ; k++ ) {
-					if ( l->origin[k] < fog->bounds[0][k] || l->origin[k] > fog->bounds[1][k] ) {
-						break;
-					}
-				}
-				if ( k == 3 ) {
-					break;
-				}
-			}
-			if ( j == tr.world->numfogs ) {
-				j = 0;
-			}
-		}
-		else
-			j = 0;
-
-		RB_AddFlare( (void *)l, j, l->origin, l->color, NULL );
+void RB_SurfaceFlare(srfFlare_t *surf)
+{
+	if ( r_flares->integer && s_flaresSupported ) {
+		RB_AddFlare( surf, tess.fogNum, surf->origin, surf->color, surf->normal );
 	}
 }
-*/
+
+
 /*
 ===============================================================================
 
@@ -281,43 +317,73 @@ FLARE BACK END
 ===============================================================================
 */
 
+// The size in world units at an eye distance that gives a size in pixels.
+static float RB_FlareWorldSize( float pixels, float eyeDistance ) {
+	const float focal = backEnd.viewParms.viewportWidth * 0.5f / tan( DEG2RAD( backEnd.viewParms.fovX * 0.5f ) );
+	return pixels * eyeDistance / focal;
+}
+
+
+// Put a quad that faces the viewer into tess, at the center with a half size.
+static void RB_AddFlareQuad( const vec3_t center, float halfSize ) {
+	const float *left = backEnd.viewParms.or.axis[1];
+	const float *up = backEnd.viewParms.or.axis[2];
+	static const float corners[4][2] = { { 1, 1 }, { 1, -1 }, { -1, -1 }, { -1, 1 } };
+	const int first = tess.numVertexes;
+	int i;
+
+	for ( i = 0 ; i < 4 ; i++ ) {
+		float *xyz = tess.xyz[first + i];
+		VectorMA( center, corners[i][0] * halfSize, left, xyz );
+		VectorMA( xyz, corners[i][1] * halfSize, up, xyz );
+		xyz[3] = 1;
+		tess.texCoords[first + i][0][0] = ( corners[i][0] + 1 ) * 0.5f;
+		tess.texCoords[first + i][0][1] = ( corners[i][1] + 1 ) * 0.5f;
+	}
+	tess.numVertexes += 4;
+
+	tess.indexes[tess.numIndexes++] = first + 0;
+	tess.indexes[tess.numIndexes++] = first + 1;
+	tess.indexes[tess.numIndexes++] = first + 2;
+	tess.indexes[tess.numIndexes++] = first + 0;
+	tess.indexes[tess.numIndexes++] = first + 2;
+	tess.indexes[tess.numIndexes++] = first + 3;
+}
+
+
 /*
 ==================
 RB_TestFlare
-==================
 
-void RB_TestFlare( flare_t *f ) {
-	float			depth;
+Use the newest query result of the flare. The ioq3 code reads the depth
+buffer here, and accepts the flare when the depth is less than 24 units in
+front of it.
+==================
+*/
+static void RB_TestFlare( flare_t *f ) {
 	qboolean		visible;
 	float			fade;
-	float			screenZ;
+	uint32_t		tag;
+	uint64_t		samples;
 
-	backEnd.pc.c_flareTests++;
-
-	// doing a readpixels is as good as doing a glFinish(), so
-	// don't bother with another sync
-	glState.finishCalled = qfalse;
-
-	// read back the z buffer contents
-	qglReadPixels( f->windowX, f->windowY, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth );
-
-	screenZ = backEnd.viewParms.projectionMatrix[14] / 
-		( ( 2*depth - 1 ) * backEnd.viewParms.projectionMatrix[11] - backEnd.viewParms.projectionMatrix[10] );
-
-	visible = ( -f->eyeZ - -screenZ ) < 24;
+	visible = f->visible;
+	if ( gapi_getOcclusionResult( (uint32_t)( f - r_flareStructs ), &tag, &samples ) && tag == f->tag ) {
+		visible = ( samples > 0 ) ? qtrue : qfalse;
+		f->waiting = qfalse;
+	}
 
 	if ( visible ) {
 		if ( !f->visible ) {
 			f->visible = qtrue;
-			f->fadeTime = backEnd.refdef.time - 1;
+			f->fadeTime = backEnd.refdef.rd.time - 1;
 		}
-		fade = ( ( backEnd.refdef.time - f->fadeTime ) /1000.0f ) * r_flareFade->value;
+		fade = ( ( backEnd.refdef.rd.time - f->fadeTime ) /1000.0f ) * r_flareFade->value;
 	} else {
 		if ( f->visible ) {
 			f->visible = qfalse;
-			f->fadeTime = backEnd.refdef.time - 1;
+			f->fadeTime = backEnd.refdef.rd.time - 1;
 		}
-		fade = 1.0f - ( ( backEnd.refdef.time - f->fadeTime ) / 1000.0f ) * r_flareFade->value;
+		fade = 1.0f - ( ( backEnd.refdef.rd.time - f->fadeTime ) / 1000.0f ) * r_flareFade->value;
 	}
 
 	if ( fade < 0 ) {
@@ -329,14 +395,55 @@ void RB_TestFlare( flare_t *f ) {
 
 	f->drawIntensity = fade;
 }
-*/
+
 
 /*
- * This is an alternative to intensity scaling. It changes the size of the flare on screen instead
- * with growing distance. See in the description at the top why this is not the way to go.
-	// size will change ~ 1/r.
-	size = backEnd.viewParms.viewportWidth * (r_flareSize->value / (distance * -2.0f));
+==================
+RB_QueryFlare
+
+Draw a small quad, 2 pixels in each direction, 24 units in front of the flare,
+with an occlusion query. Samples that pass the depth test make the flare
+visible.
+==================
 */
+static void RB_QueryFlare( flare_t *f ) {
+	const float minDistance = r_znear->value * 2;
+	vec3_t		toEye, center;
+	float		distance, pull;
+	int			i;
+
+	VectorSubtract( backEnd.viewParms.or.origin, f->origin, toEye );
+	distance = VectorNormalize( toEye );
+	pull = 24;
+	if ( distance - pull < minDistance ) {
+		pull = distance - minDistance;
+	}
+	if ( pull < 0 ) {
+		pull = 0;
+	}
+	VectorMA( f->origin, pull, toEye, center );
+
+	tess.numVertexes = 0;
+	tess.numIndexes = 0;
+	RB_AddFlareQuad( center, RB_FlareWorldSize( 2, distance - pull ) );
+	for ( i = 0 ; i < tess.numVertexes ; i++ ) {
+		tess.svars.colors[i][0] = 255;
+		tess.svars.colors[i][1] = 255;
+		tess.svars.colors[i][2] = 255;
+		tess.svars.colors[i][3] = 255;
+		tess.svars.texcoords[0][i][0] = 0;
+		tess.svars.texcoords[0][i][1] = 0;
+	}
+
+	gapi_uploadPositionsAndIndexes( tess.xyz, tess.numVertexes, tess.indexes, tess.numIndexes );
+	gapi_beginOcclusionQuery( (uint32_t)( f - r_flareStructs ), f->tag );
+	RB_ShadeGeometry( g_stdPipelines.flare_test_pipeline, qfalse, GAPI_DEPTH_NORMAL, qtrue );
+	gapi_endOcclusionQuery();
+
+	tess.numVertexes = 0;
+	tess.numIndexes = 0;
+}
+
 
 /*
  * As flare sizes stay nearly constant with increasing distance we must decrease the intensity
@@ -350,15 +457,14 @@ void RB_TestFlare( flare_t *f ) {
  * intensity = flareCoeff * size^2 / (distance + size*sqrt(flareCoeff))^2
  * As you can see, the intensity will have a max. of 1 when the distance is 0.
  * The coefficient flareCoeff will determine the falloff speed with increasing distance.
-
-void RB_RenderFlare( flare_t *f ) {
+ */
+static void RB_RenderFlare( flare_t *f ) {
 	float			size;
 	vec3_t			color;
 	int				iColor[3];
 	float distance, intensity, factor;
 	byte fogFactors[3] = {255, 255, 255};
-
-	backEnd.pc.c_flareRenders++;
+	int				i;
 
 	// We don't want too big values anyways when dividing by distance.
 	if(f->eyeZ > -1.0f)
@@ -369,10 +475,8 @@ void RB_RenderFlare( flare_t *f ) {
 	// calculate the flare size..
 	size = backEnd.viewParms.viewportWidth * ( r_flareSize->value/640.0f + 8 / distance );
 
-
-
 	factor = distance + size * sqrt(flareCoeff);
-	
+
 	intensity = flareCoeff * size * size / (factor * factor);
 
 	VectorScale(f->color, f->drawIntensity * intensity, color);
@@ -383,9 +487,10 @@ void RB_RenderFlare( flare_t *f ) {
 		tess.numVertexes = 1;
 		VectorCopy(f->origin, tess.xyz[0]);
 		tess.fogNum = f->fogNum;
-	
+
 		RB_CalcModulateColorsByFog(fogFactors);
-		
+		tess.numVertexes = 0;
+
 		// We don't need to render the flare if colors are 0 anyways.
 		if(!(fogFactors[0] || fogFactors[1] || fogFactors[2]))
 			return;
@@ -394,60 +499,22 @@ void RB_RenderFlare( flare_t *f ) {
 	iColor[0] = color[0] * fogFactors[0];
 	iColor[1] = color[1] * fogFactors[1];
 	iColor[2] = color[2] * fogFactors[2];
-	
-	RB_BeginSurface( tr.flareShader, f->fogNum );
 
-	// FIXME: use quadstamp?
-	tess.xyz[tess.numVertexes][0] = f->windowX - size;
-	tess.xyz[tess.numVertexes][1] = f->windowY - size;
-	tess.texCoords[tess.numVertexes][0][0] = 0;
-	tess.texCoords[tess.numVertexes][0][1] = 0;
-	tess.vertexColors[tess.numVertexes][0] = iColor[0];
-	tess.vertexColors[tess.numVertexes][1] = iColor[1];
-	tess.vertexColors[tess.numVertexes][2] = iColor[2];
-	tess.vertexColors[tess.numVertexes][3] = 255;
-	tess.numVertexes++;
+	// the fog is in the color: no fog pass
+	RB_BeginSurface( tr.flareShader, 0 );
 
-	tess.xyz[tess.numVertexes][0] = f->windowX - size;
-	tess.xyz[tess.numVertexes][1] = f->windowY + size;
-	tess.texCoords[tess.numVertexes][0][0] = 0;
-	tess.texCoords[tess.numVertexes][0][1] = 1;
-	tess.vertexColors[tess.numVertexes][0] = iColor[0];
-	tess.vertexColors[tess.numVertexes][1] = iColor[1];
-	tess.vertexColors[tess.numVertexes][2] = iColor[2];
-	tess.vertexColors[tess.numVertexes][3] = 255;
-	tess.numVertexes++;
-
-	tess.xyz[tess.numVertexes][0] = f->windowX + size;
-	tess.xyz[tess.numVertexes][1] = f->windowY + size;
-	tess.texCoords[tess.numVertexes][0][0] = 1;
-	tess.texCoords[tess.numVertexes][0][1] = 1;
-	tess.vertexColors[tess.numVertexes][0] = iColor[0];
-	tess.vertexColors[tess.numVertexes][1] = iColor[1];
-	tess.vertexColors[tess.numVertexes][2] = iColor[2];
-	tess.vertexColors[tess.numVertexes][3] = 255;
-	tess.numVertexes++;
-
-	tess.xyz[tess.numVertexes][0] = f->windowX + size;
-	tess.xyz[tess.numVertexes][1] = f->windowY - size;
-	tess.texCoords[tess.numVertexes][0][0] = 1;
-	tess.texCoords[tess.numVertexes][0][1] = 0;
-	tess.vertexColors[tess.numVertexes][0] = iColor[0];
-	tess.vertexColors[tess.numVertexes][1] = iColor[1];
-	tess.vertexColors[tess.numVertexes][2] = iColor[2];
-	tess.vertexColors[tess.numVertexes][3] = 255;
-	tess.numVertexes++;
-
-	tess.indexes[tess.numIndexes++] = 0;
-	tess.indexes[tess.numIndexes++] = 1;
-	tess.indexes[tess.numIndexes++] = 2;
-	tess.indexes[tess.numIndexes++] = 0;
-	tess.indexes[tess.numIndexes++] = 2;
-	tess.indexes[tess.numIndexes++] = 3;
+	RB_AddFlareQuad( f->origin, RB_FlareWorldSize( size, distance ) );
+	for ( i = 0 ; i < tess.numVertexes ; i++ ) {
+		tess.vertexColors[i][0] = iColor[0] > 255 ? 255 : iColor[0];
+		tess.vertexColors[i][1] = iColor[1] > 255 ? 255 : iColor[1];
+		tess.vertexColors[i][2] = iColor[2] > 255 ? 255 : iColor[2];
+		tess.vertexColors[i][3] = 255;
+	}
 
 	RB_EndSurface();
 }
-*/
+
+
 /*
 ==================
 RB_RenderFlares
@@ -463,12 +530,16 @@ The resulting artifact is that flares in mirrors or portals don't dim properly
 when occluded by something in the main view, and portal flares that should
 extend past the portal edge will be overwritten.
 ==================
-
+*/
 void RB_RenderFlares (void)
 {
 	flare_t		*f;
 	flare_t		**prev;
 	qboolean	draw;
+
+	if ( !s_flaresSupported || !r_flares->integer || backEnd.viewParms.isPortal ) {
+		return;
+	}
 
 	if(r_flareCoeff->modified)
 	{
@@ -480,10 +551,12 @@ void RB_RenderFlares (void)
 	// don't have influence on the rendering of these flares (i.e. RF_ renderer flags).
 	backEnd.currentEntity = &tr.worldEntity;
 	backEnd.or = backEnd.viewParms.world;
+	set_modelview_matrix( backEnd.viewParms.world.modelMatrix );
+	updateMVP( qfalse, qfalse, backEnd.viewParms.world.modelMatrix );
+	gapi_bindTexture( 0, tr.whiteImage->tex );
 
-//	RB_AddDlightFlares();
-
-	// perform z buffer readback on each flare in this view
+	// test each flare in this view with the newest query result, and start
+	// the next query
 	draw = qfalse;
 	prev = &r_activeFlares;
 	while ( ( f = *prev ) != NULL ) {
@@ -495,14 +568,16 @@ void RB_RenderFlares (void)
 			continue;
 		}
 
-		// don't draw any here that aren't from this scene / portal
+		// don't draw any here that aren't from this scene
 		f->drawIntensity = 0;
-		if ( f->frameSceneNum == backEnd.viewParms.frameSceneNum
-			&& f->inPortal == backEnd.viewParms.isPortal ) {
+		if ( f->frameSceneNum == backEnd.viewParms.frameSceneNum ) {
 			RB_TestFlare( f );
+			if ( f->addedFrame == backEnd.viewParms.frameCount ) {
+				RB_QueryFlare( f );
+			}
 			if ( f->drawIntensity ) {
 				draw = qtrue;
-			} else {
+			} else if ( !f->waiting ) {
 				// this flare has completely faded out, so remove it from the chain
 				*prev = f->next;
 				f->next = r_inactiveFlares;
@@ -514,33 +589,14 @@ void RB_RenderFlares (void)
 		prev = &f->next;
 	}
 
-	if ( !draw ) {
+	if ( !draw || !tr.flareShader ) {
 		return;		// none visible
 	}
 
-	if ( backEnd.viewParms.isPortal ) {
-		qglDisable (GL_CLIP_PLANE0);
-	}
-
-	qglPushMatrix();
-    qglLoadIdentity();
-	qglMatrixMode( GL_PROJECTION );
-	qglPushMatrix();
-    qglLoadIdentity();
-	qglOrtho( backEnd.viewParms.viewportX, backEnd.viewParms.viewportX + backEnd.viewParms.viewportWidth,
-			  backEnd.viewParms.viewportY, backEnd.viewParms.viewportY + backEnd.viewParms.viewportHeight,
-			  -99999, 99999 );
-
 	for ( f = r_activeFlares ; f ; f = f->next ) {
 		if ( f->frameSceneNum == backEnd.viewParms.frameSceneNum
-			&& f->inPortal == backEnd.viewParms.isPortal
 			&& f->drawIntensity ) {
 			RB_RenderFlare( f );
 		}
 	}
-
-	qglPopMatrix();
-	qglMatrixMode( GL_MODELVIEW );
-	qglPopMatrix();
 }
-*/

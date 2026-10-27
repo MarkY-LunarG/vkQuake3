@@ -216,6 +216,13 @@ With `heavy`, the backend does these steps:
   buffer, and a map without a wait reads them some frames later.
   `r_speeds 1` prints the time for each frame, and `gapiInfo` prints the last time.
   `r_speeds` is a cheat cvar: use it on a map that `devmap` starts.
+- It has occlusion queries (`wgpuRenderPassEncoderBeginOcclusionQuery`,
+  `wgpuRenderPassEncoderEndOcclusionQuery`), and thus `r_flares 1` draws the light flares.
+  A small quad in front of each flare tests the depth, and the result of an earlier frame tells
+  if the flare is visible.
+  Without `heavy`, and with the Vulkan backend, `r_flares` does nothing.
+  The flares change the frames: compare the two paths with `r_flares 0`.
+  For a capture with all the calls of `heavy`, add `+set r_flares 1`.
 - It puts an error scope around the creation of each shader module and of each synchronous
   render pipeline (`wgpuDevicePushErrorScope`, `wgpuDevicePopErrorScope`).
   The backend does not wait for the result of a scope.
@@ -258,7 +265,6 @@ Put a new item behind `wg.heavyCoverage`, keep the frames the same, and add it t
 
 | Item | Calls | Size | Work |
 |---|---|---|---|
-| Light flares | `wgpuRenderPassEncoderBeginOcclusionQuery`, `wgpuRenderPassEncoderEndOcclusionQuery`, and an occlusion query set | large | `RB_RenderFlares` has no caller, and `tr_flares.c` reads the depth with `glReadPixels`. Replace the depth read with an occlusion query for each flare, and use the result of an earlier frame |
 | GPU mipmaps | `wgpuDeviceCreateComputePipeline`, `wgpuDeviceCreateComputePipelineAsync`, the `wgpuComputePassEncoder*` calls | medium | Make the mipmap levels with a compute pass, not on the CPU |
 
 Render bundles and indirect draws are not in the table.

@@ -202,6 +202,7 @@ static void wgpu_releaseAll(void)
     if (wg.device)
     {
         wgpu_releaseTimingResources();
+        wgpu_releaseOcclusionResources();
         wgpu_releaseDrawResources();
         wgpu_releasePipelineResources();
         wgpu_releaseGeometryResources();
@@ -308,6 +309,7 @@ qboolean gapi_init(struct SDL_Window* window)
     wgpu_createPipelineResources();
     wgpu_createDrawResources();
     wgpu_createTimingResources();
+    wgpu_createOcclusionResources();
 
     wg.initialized = qtrue;
     return qtrue;
@@ -342,6 +344,8 @@ void gapi_getCaps(gapi_caps_t* caps)
 
     // WebGPU has no line polygon mode.
     caps->fillModeLine = qfalse;
+    // r_apiCoverage heavy: occlusion queries for the light flares (r_flares).
+    caps->occlusionQueries = wg.heavyCoverage;
 
     WGPUAdapterInfo info = WGPU_ADAPTER_INFO_INIT;
     if (wgpuAdapterGetInfo(wg.adapter, &info) == WGPUStatus_Success)

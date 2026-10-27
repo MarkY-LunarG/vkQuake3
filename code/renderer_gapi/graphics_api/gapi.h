@@ -26,6 +26,7 @@ typedef struct gapi_pipeline_s gapi_pipeline_t;
 // The optional features of the graphics API and the device.
 typedef struct {
 	qboolean fillModeLine;		// pipelines can draw triangles as lines (GLS_POLYMODE_LINE)
+	qboolean occlusionQueries;	// gapi_beginOcclusionQuery and the other occlusion query functions work
 	char vendor[256];			// for glConfig.vendor_string
 	char renderer[256];			// for glConfig.renderer_string
 	char version[256];			// for glConfig.version_string
@@ -182,5 +183,16 @@ void gapi_popDebugGroup(void);
 // Put a named marker between the draws, for debug and capture tools. The same
 // rules as for the debug groups apply.
 void gapi_insertDebugMarker(const char* name);
+
+// Occlusion queries, if gapi_caps_t.occlusionQueries is qtrue. A query counts
+// the samples of the draws between gapi_beginOcclusionQuery and
+// gapi_endOcclusionQuery that pass the depth test. Use each index only one time
+// in a frame. The result comes back some frames later, with the tag of the
+// query: gapi_getOcclusionResult gives the newest result of an index only one
+// time, and returns qfalse when there is no new result.
+#define GAPI_MAX_OCCLUSION_QUERIES 256
+void gapi_beginOcclusionQuery(uint32_t index, uint32_t tag);
+void gapi_endOcclusionQuery(void);
+qboolean gapi_getOcclusionResult(uint32_t index, uint32_t* tag, uint64_t* samples);
 
 #endif

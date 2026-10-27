@@ -36,6 +36,9 @@ cvar_t	*r_vertexLight;
 cvar_t	*r_uiFullScreen;
 cvar_t	*r_shadows;
 cvar_t	*r_flares;
+cvar_t	*r_flareSize;
+cvar_t	*r_flareFade;
+cvar_t	*r_flareCoeff;
 cvar_t	*r_singleShader;
 cvar_t	*r_colorMipLevels;
 cvar_t	*r_picmip;
@@ -107,6 +110,9 @@ void R_Register( void )
 	//
 	r_lodCurveError = ri.Cvar_Get( "r_lodCurveError", "250", CVAR_ARCHIVE|CVAR_CHEAT );
     r_flares = ri.Cvar_Get ("r_flares", "0", CVAR_ARCHIVE );
+	r_flareSize = ri.Cvar_Get ("r_flareSize", "40", CVAR_CHEAT);
+	r_flareFade = ri.Cvar_Get ("r_flareFade", "10", CVAR_CHEAT);
+	r_flareCoeff = ri.Cvar_Get ("r_flareCoeff", "150", CVAR_CHEAT);
 	r_znear = ri.Cvar_Get( "r_znear", "4", CVAR_CHEAT );
     ri.Cvar_CheckRange( r_znear, 0.001f, 200, qtrue );
 

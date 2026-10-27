@@ -23,6 +23,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "tr_globals.h"
 #include "tr_backend.h"
 #include "tr_cvar.h"
+#include "tr_flares.h"
 #include "ref_import.h"
 
 #include "tr_screenshot.h"
@@ -355,6 +356,9 @@ static void RB_RenderDrawSurfList( drawSurf_t* drawSurfs, int numDrawSurfs )
 
 	// darken down any stencil shadows
 	RB_ShadowFinish();		
+
+	// add light flares on lights that aren't obscured
+	RB_RenderFlares();
 
 	gapi_popDebugGroup();
 }

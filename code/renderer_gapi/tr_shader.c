@@ -25,6 +25,7 @@ Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 #include "tr_state_bits.h"
 #include "tr_cvar.h"
 #include "tr_shader.h"
+#include "tr_flares.h"
 #include "R_Parser.h"
 #include "ref_import.h"
 
@@ -2198,6 +2199,7 @@ static void CreateExternalShaders( void )
     ri.Printf( PRINT_ALL, "CreateExternalShaders\n" );
 
 	tr.projectionShadowShader = R_FindShader( "projectionShadow", LIGHTMAP_NONE, qtrue );
+	R_InitFlareShader();
 }
 
 

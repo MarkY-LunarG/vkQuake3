@@ -307,6 +307,25 @@ void create_standard_pipelines(void)
         def.stateBits = GLS_DEPTHTEST_DISABLE | GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
         R_CreateStdPipeline(&def, &g_stdPipelines.images_debug_pipeline);
     }
+
+    // The blend keeps the color (zero * source + one * destination). Without
+    // GLS_DEPTHMASK_TRUE, the depth does not change.
+    g_stdPipelines.flare_test_pipeline = NULL;
+    {
+        gapi_caps_t caps;
+        gapi_getCaps(&caps);
+        if (caps.occlusionQueries)
+        {
+            ri.Printf(PRINT_ALL, " Create flare test pipeline \n");
+
+            gapi_pipelineDesc_t def;
+            memset(&def, 0, sizeof(def));
+
+            def.cullType = GAPI_CULL_TWO_SIDED;
+            def.stateBits = GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE;
+            R_CreateStdPipeline(&def, &g_stdPipelines.flare_test_pipeline);
+        }
+    }
 }
 
 
