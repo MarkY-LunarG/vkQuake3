@@ -135,8 +135,31 @@ static WGPUBlendFactor wgpu_dstBlendFactor(uint32_t stateBits)
 }
 
 
+// r_apiCoverage heavy: the callback of the asynchronous build. It runs in
+// wgpu_resolvePipeline, in wgpuInstanceWaitAny (WGPUCallbackMode_WaitAnyOnly).
+static void wgpu_onRenderPipelineCreated(WGPUCreatePipelineAsyncStatus status, WGPURenderPipeline renderPipeline,
+        WGPUStringView message, void* userdata1, void* userdata2)
+{
+    gapi_pipeline_t* pipeline = (gapi_pipeline_t*)userdata1;
+    if (status == WGPUCreatePipelineAsyncStatus_Success)
+    {
+        pipeline->pipeline = renderPipeline;
+    }
+    else
+    {
+        char text[1024];
+        ri.Printf(PRINT_WARNING, "WebGPU: asynchronous pipeline build failed: %s\n",
+                wgpu_cString(message, text, sizeof(text)));
+        if (renderPipeline)
+            wgpuRenderPipelineRelease(renderPipeline);
+    }
+}
+
+
+// Make the WebGPU pipeline. If asyncTarget is not NULL, start an asynchronous
+// build for asyncTarget and return NULL (r_apiCoverage heavy).
 static WGPURenderPipeline wgpu_createRenderPipeline(const gapi_pipelineDesc_t* def,
-        float depthBiasConstant, float depthBiasSlope)
+        float depthBiasConstant, float depthBiasSlope, gapi_pipeline_t* asyncTarget)
 {
     const qboolean multitexture = (def->shaderType != GAPI_SHADER_SINGLE_TEXTURE);
     const qboolean useClipDistance = def->clipPlane && wg.clipDistances;
@@ -295,6 +318,17 @@ static WGPURenderPipeline wgpu_createRenderPipeline(const gapi_pipelineDesc_t* d
     fragment.targets = &target;
     desc.fragment = &fragment;
 
+    if (asyncTarget)
+    {
+        WGPUCreateRenderPipelineAsyncCallbackInfo callback = WGPU_CREATE_RENDER_PIPELINE_ASYNC_CALLBACK_INFO_INIT;
+        callback.mode = WGPUCallbackMode_WaitAnyOnly;
+        callback.callback = wgpu_onRenderPipelineCreated;
+        callback.userdata1 = asyncTarget;
+        asyncTarget->future = wgpuDeviceCreateRenderPipelineAsync(wg.device, &desc, callback);
+        asyncTarget->pending = qtrue;
+        return NULL;
+    }
+
     return wgpuDeviceCreateRenderPipeline(wg.device, &desc);
 }
 
@@ -311,8 +345,29 @@ gapi_pipeline_t* gapi_createPipeline(const gapi_pipelineDesc_t* desc)
     // The first draw gives the depth bias. Until then, use the r_offset cvars.
     pipeline->depthBiasConstant = ri.Cvar_Get("r_offsetunits", "-2", CVAR_CHEAT)->value;
     pipeline->depthBiasSlope = ri.Cvar_Get("r_offsetfactor", "-1", CVAR_CHEAT)->value;
-    pipeline->pipeline = wgpu_createRenderPipeline(desc, pipeline->depthBiasConstant, pipeline->depthBiasSlope);
+    // r_apiCoverage heavy: start the build here, and wait for it at the first
+    // draw. The level load makes most of the pipelines before the first frame.
+    pipeline->pipeline = wgpu_createRenderPipeline(desc, pipeline->depthBiasConstant, pipeline->depthBiasSlope,
+            wg.heavyCoverage ? pipeline : NULL);
     return pipeline;
+}
+
+
+void wgpu_resolvePipeline(gapi_pipeline_t* pipeline)
+{
+    if (!pipeline->pending)
+        return;
+
+    WGPUFutureWaitInfo wait = WGPU_FUTURE_WAIT_INFO_INIT;
+    wait.future = pipeline->future;
+    wgpuInstanceWaitAny(wg.instance, 1, &wait, UINT64_MAX);
+    pipeline->pending = qfalse;
+
+    // If the asynchronous build failed, a synchronous build reports the
+    // validation error through the uncaptured error callback.
+    if (pipeline->pipeline == NULL)
+        pipeline->pipeline = wgpu_createRenderPipeline(&pipeline->desc, pipeline->depthBiasConstant,
+                pipeline->depthBiasSlope, NULL);
 }
 
 
@@ -326,12 +381,14 @@ void wgpu_updatePipelineDepthBias(gapi_pipeline_t* pipeline, float constant, flo
     wgpuRenderPipelineRelease(pipeline->pipeline);
     pipeline->depthBiasConstant = constant;
     pipeline->depthBiasSlope = slope;
-    pipeline->pipeline = wgpu_createRenderPipeline(&pipeline->desc, constant, slope);
+    pipeline->pipeline = wgpu_createRenderPipeline(&pipeline->desc, constant, slope, NULL);
 }
 
 
 void gapi_destroyPipeline(gapi_pipeline_t* pipeline)
 {
+    // The callback writes to pipeline. Wait for it before the free.
+    wgpu_resolvePipeline(pipeline);
     if (pipeline->pipeline)
         wgpuRenderPipelineRelease(pipeline->pipeline);
     free(pipeline);

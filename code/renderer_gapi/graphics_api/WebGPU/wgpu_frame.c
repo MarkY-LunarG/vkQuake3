@@ -350,11 +350,18 @@ void gapi_endFrame(void)
     // The queue does the writes before the commands of the frame.
     wgpu_writeGeometryFrame();
 
+    // r_apiCoverage heavy: a debug group for the copies after the render pass.
+    if (wg.heavyCoverage)
+        wgpuCommandEncoderPushDebugGroup(wg.encoder, wgpu_stringView("end of frame copies"));
+
     // Keep a copy for screenshots and video capture.
     wgpu_keepLastFrame();
 
     if (wg.offscreen)
         wgpu_blitToSurface();
+
+    if (wg.heavyCoverage)
+        wgpuCommandEncoderPopDebugGroup(wg.encoder);
 
     WGPUCommandBuffer commands = wgpuCommandEncoderFinish(wg.encoder, NULL);
     wgpuQueueSubmit(wg.queue, 1, &commands);

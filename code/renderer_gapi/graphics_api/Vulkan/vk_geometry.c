@@ -556,3 +556,14 @@ void gapi_clearColor(const gapi_rect_t* rect, const float color[4])
 	qvkCmdClearAttachments(vk.command_buffer, 1, attachments, 1, clear_rect);
 
 }
+
+
+void gapi_pushDebugGroup(const char* name)
+{
+    (void)name;
+}
+
+
+void gapi_popDebugGroup(void)
+{
+}

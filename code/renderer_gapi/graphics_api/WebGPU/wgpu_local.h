@@ -53,6 +53,12 @@ typedef struct {
 	// The device has the clip-distances feature.
 	qboolean clipDistances;
 
+	// r_apiCoverage heavy: use more of the WebGPU API than the default path, for
+	// captures that test the API coverage of a capture tool. The default path does
+	// not change. vid_restart applies a change (CVAR_LATCH).
+	cvar_t* apiCoverage;
+	qboolean heavyCoverage;
+
 	// The objects that exist from gapi_init to gapi_shutdown.
 	WGPUBindGroupLayout uniformLayout;		// group 0: the vertex shader constants
 	WGPUBindGroupLayout textureLayout;		// groups 1 and 2: a texture and its sampler
@@ -73,6 +79,10 @@ struct gapi_texture_s {
 	WGPUTexture texture;
 	WGPUTextureView view;
 	WGPUBindGroup bindGroup;				// the texture and its sampler
+
+	// The list of live textures, for gpuMem.
+	struct gapi_texture_s* prev;
+	struct gapi_texture_s* next;
 };
 
 struct gapi_pipeline_s {
@@ -82,6 +92,11 @@ struct gapi_pipeline_s {
 	// the pipeline is made again when gapi_draw_t gives other values.
 	float depthBiasConstant;
 	float depthBiasSlope;
+
+	// r_apiCoverage heavy: the first build is asynchronous. pipeline is NULL
+	// until wgpu_resolvePipeline waits for the future.
+	qboolean pending;
+	WGPUFuture future;
 };
 
 // wgpu_surface_sdl.c: make the surface for the window.
@@ -100,6 +115,9 @@ void wgpu_createPipelineResources(void);
 void wgpu_releasePipelineResources(void);
 // Make the WebGPU pipeline again if the depth bias changed.
 void wgpu_updatePipelineDepthBias(gapi_pipeline_t* pipeline, float constant, float slope);
+// Wait for an asynchronous pipeline build (r_apiCoverage heavy). Call it before
+// the first use of the pipeline.
+void wgpu_resolvePipeline(gapi_pipeline_t* pipeline);
 
 // wgpu_geometry.c: the vertex shader constants and the geometry buffers.
 void wgpu_createGeometryResources(void);
@@ -108,6 +126,8 @@ void wgpu_releaseGeometryResources(void);
 // before the submit.
 void wgpu_beginGeometryFrame(void);
 void wgpu_writeGeometryFrame(void);
+// gpuMem with r_apiCoverage heavy: the bytes of the geometry buffers.
+uint64_t wgpu_geometryBufferBytes(uint32_t* bufferCount);
 
 // wgpu_draw.c: the clear pipelines, and the copy of the last frame for
 // gapi_readPixels. Call wgpu_keepLastFrame after the render pass ends.

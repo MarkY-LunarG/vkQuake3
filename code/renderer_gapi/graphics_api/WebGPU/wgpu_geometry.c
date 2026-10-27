@@ -306,6 +306,8 @@ void gapi_draw(const gapi_pipeline_t* pipeline, const gapi_draw_t* draw)
     }
     s_geo.color_st_elements += draw->numVertexes;
 
+    // r_apiCoverage heavy: the first draw waits for the asynchronous build.
+    wgpu_resolvePipeline((gapi_pipeline_t*)pipeline);
     // WebGPU has no dynamic depth bias: the pipeline has the bias.
     wgpu_updatePipelineDepthBias((gapi_pipeline_t*)pipeline, draw->depthBiasConstant, draw->depthBiasSlope);
     wgpuRenderPassEncoderSetPipeline(wg.pass, pipeline->pipeline);
@@ -321,4 +323,43 @@ void gapi_draw(const gapi_pipeline_t* pipeline, const gapi_draw_t* draw)
         wgpuRenderPassEncoderDrawIndexed(wg.pass, draw->numIndexes, 1, 0, 0, 0);
     else
         wgpuRenderPassEncoderDraw(wg.pass, draw->numVertexes, 1, 0, 0);
+}
+
+
+uint64_t wgpu_geometryBufferBytes(uint32_t* bufferCount)
+{
+    const WGPUBuffer buffers[] = { s_geo.vertexBuffer, s_geo.indexBuffer, s_geo.constantsBuffer };
+    uint64_t bytes = 0;
+    uint32_t count = 0;
+    size_t i;
+
+    for (i = 0; i < ARRAY_LEN(buffers); i++)
+    {
+        if (buffers[i] == NULL)
+            continue;
+        // The usage is not necessary for the sum. It is here for the API coverage.
+        if (wgpuBufferGetUsage(buffers[i]) == WGPUBufferUsage_None)
+            continue;
+        bytes += wgpuBufferGetSize(buffers[i]);
+        count++;
+    }
+
+    *bufferCount = count;
+    return bytes;
+}
+
+
+void gapi_pushDebugGroup(const char* name)
+{
+    if (!wg.frameActive || !wg.heavyCoverage)
+        return;
+    wgpuRenderPassEncoderPushDebugGroup(wg.pass, wgpu_stringView(name));
+}
+
+
+void gapi_popDebugGroup(void)
+{
+    if (!wg.frameActive || !wg.heavyCoverage)
+        return;
+    wgpuRenderPassEncoderPopDebugGroup(wg.pass);
 }

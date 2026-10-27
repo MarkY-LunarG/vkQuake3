@@ -209,6 +209,17 @@ static void RB_RenderDrawSurfList( drawSurf_t* drawSurfs, int numDrawSurfs )
 	// save original time for entity shader offsets
 	float originalTime = backEnd.refdef.floatTime;
 
+	// A debug group for each view (r_apiCoverage heavy on WebGPU).
+	if ( backEnd.viewParms.isMirror ) {
+		gapi_pushDebugGroup( "mirror view" );
+	} else if ( backEnd.viewParms.isPortal ) {
+		gapi_pushDebugGroup( "portal view" );
+	} else if ( backEnd.refdef.rd.rdflags & RDF_NOWORLDMODEL ) {
+		gapi_pushDebugGroup( "model view" );
+	} else {
+		gapi_pushDebugGroup( "world view" );
+	}
+
     // Any mirrored or portaled views have already been drawn, 
     // so prepare to actually render the visible surfaces for this view
 	// clear the z buffer, set the modelview, etc
@@ -344,6 +355,8 @@ static void RB_RenderDrawSurfList( drawSurf_t* drawSurfs, int numDrawSurfs )
 
 	// darken down any stencil shadows
 	RB_ShadowFinish();		
+
+	gapi_popDebugGroup();
 }
 
 

@@ -198,6 +198,15 @@ qboolean gapi_init(struct SDL_Window* window)
     wg.fatalErrors = ri.Cvar_Get("r_webgpuFatalErrors", "0", CVAR_TEMP);
     // Tests set this to draw into an offscreen texture on all surfaces.
     wg.forceOffscreen = ri.Cvar_Get("r_webgpuOffscreen", "0", CVAR_LATCH | CVAR_TEMP);
+    // "heavy" uses more of the WebGPU API than the default path, for captures that
+    // test the API coverage of a capture tool (graphics_api/WebGPU/README.md).
+    wg.apiCoverage = ri.Cvar_Get("r_apiCoverage", "default", CVAR_LATCH | CVAR_TEMP);
+    wg.heavyCoverage = (Q_stricmp(wg.apiCoverage->string, "heavy") == 0) ? qtrue : qfalse;
+    if (wg.heavyCoverage)
+        ri.Printf(PRINT_ALL, " WebGPU: r_apiCoverage heavy\n");
+    else if (Q_stricmp(wg.apiCoverage->string, "default") != 0)
+        ri.Printf(PRINT_WARNING, "WebGPU: r_apiCoverage \"%s\" is not \"default\" or \"heavy\"; using \"default\"\n",
+                wg.apiCoverage->string);
 
     WGPUInstanceFeatureName instanceFeatures[1] = { WGPUInstanceFeatureName_TimedWaitAny };
     WGPUInstanceDescriptor instanceDesc = WGPU_INSTANCE_DESCRIPTOR_INIT;
@@ -312,6 +321,60 @@ static const char* wgpu_backendName(WGPUBackendType type)
 }
 
 
+// r_apiCoverage heavy: print the features and the limits of the device and the
+// instance. The numbers are WGPUFeatureName, WGPUInstanceFeatureName, and
+// WGPUWGSLLanguageFeatureName values.
+static void wgpu_printApiCoverageInfo(void)
+{
+    WGPUAdapterInfo info = WGPU_ADAPTER_INFO_INIT;
+    if (wgpuDeviceGetAdapterInfo(wg.device, &info) == WGPUStatus_Success)
+    {
+        char device[256];
+        ri.Printf(PRINT_ALL, "WebGPU device adapter: %s\n", wgpu_cString(info.device, device, sizeof(device)));
+        wgpuAdapterInfoFreeMembers(info);
+    }
+
+    WGPULimits limits = WGPU_LIMITS_INIT;
+    if (wgpuDeviceGetLimits(wg.device, &limits) == WGPUStatus_Success)
+        ri.Printf(PRINT_ALL, "WebGPU device limits: maxTextureDimension2D %u, maxBindGroups %u\n",
+                limits.maxTextureDimension2D, limits.maxBindGroups);
+
+    WGPUSupportedFeatures features = WGPU_SUPPORTED_FEATURES_INIT;
+    wgpuDeviceGetFeatures(wg.device, &features);
+    ri.Printf(PRINT_ALL, "WebGPU device features (%u):", (unsigned)features.featureCount);
+    for (size_t i = 0; i < features.featureCount; i++)
+        ri.Printf(PRINT_ALL, " 0x%X", (unsigned)features.features[i]);
+    ri.Printf(PRINT_ALL, "\n");
+    wgpuSupportedFeaturesFreeMembers(features);
+
+    WGPUSupportedInstanceFeatures instanceFeatures = WGPU_SUPPORTED_INSTANCE_FEATURES_INIT;
+    wgpuGetInstanceFeatures(&instanceFeatures);
+    ri.Printf(PRINT_ALL, "WebGPU instance features (%u):", (unsigned)instanceFeatures.featureCount);
+    for (size_t i = 0; i < instanceFeatures.featureCount; i++)
+        ri.Printf(PRINT_ALL, " 0x%X", (unsigned)instanceFeatures.features[i]);
+    ri.Printf(PRINT_ALL, "\n");
+    wgpuSupportedInstanceFeaturesFreeMembers(instanceFeatures);
+
+    WGPUInstanceLimits instanceLimits = WGPU_INSTANCE_LIMITS_INIT;
+    if (wgpuGetInstanceLimits(&instanceLimits) == WGPUStatus_Success)
+        ri.Printf(PRINT_ALL, "WebGPU instance limits: timedWaitAnyMaxCount %u\n",
+                (unsigned)instanceLimits.timedWaitAnyMaxCount);
+    ri.Printf(PRINT_ALL, "WebGPU timed WaitAny: %s\n",
+            wgpuHasInstanceFeature(WGPUInstanceFeatureName_TimedWaitAny) ? "yes" : "no");
+
+    WGPUSupportedWGSLLanguageFeatures wgsl = WGPU_SUPPORTED_WGSL_LANGUAGE_FEATURES_INIT;
+    wgpuInstanceGetWGSLLanguageFeatures(wg.instance, &wgsl);
+    ri.Printf(PRINT_ALL, "WebGPU WGSL language features (%u):", (unsigned)wgsl.featureCount);
+    for (size_t i = 0; i < wgsl.featureCount; i++)
+        ri.Printf(PRINT_ALL, " 0x%X", (unsigned)wgsl.features[i]);
+    ri.Printf(PRINT_ALL, "\n");
+    wgpuSupportedWGSLLanguageFeaturesFreeMembers(wgsl);
+    ri.Printf(PRINT_ALL, "WebGPU WGSL packed 4x8 integer dot product: %s\n",
+            wgpuInstanceHasWGSLLanguageFeature(wg.instance, WGPUWGSLLanguageFeatureName_Packed4x8IntegerDotProduct)
+                    ? "yes" : "no");
+}
+
+
 void gapi_printInfo(void)
 {
     ri.Printf(PRINT_ALL, "\nActive 3D API: WebGPU (Dawn)\n");
@@ -330,6 +393,9 @@ void gapi_printInfo(void)
 
     ri.Printf(PRINT_ALL, "WebGPU clip distances: %s\n",
             wgpuDeviceHasFeature(wg.device, WGPUFeatureName_ClipDistances) ? "yes" : "no");
+
+    if (wg.heavyCoverage)
+        wgpu_printApiCoverageInfo();
 
     gapi_printMemoryInfo();
 }

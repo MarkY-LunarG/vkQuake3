@@ -169,4 +169,10 @@ void gapi_clearColor(const gapi_rect_t* rect, const float color[4]);
 // Clear a rectangle of the depth attachment, and of the stencil if stencil is qtrue.
 void gapi_clearDepthStencil(const gapi_rect_t* rect, qboolean stencil);
 
+// Start and end a named group of draws, for debug and capture tools. The
+// WebGPU backend records the groups only with r_apiCoverage heavy. The Vulkan
+// backend does not record them.
+void gapi_pushDebugGroup(const char* name);
+void gapi_popDebugGroup(void);
+
 #endif

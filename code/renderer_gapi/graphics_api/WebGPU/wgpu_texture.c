@@ -4,6 +4,7 @@
 #include "wgpu_local.h"
 
 static uint32_t s_numTextures = 0;
+static gapi_texture_t* s_textures = NULL;		// the list of live textures
 
 
 void wgpu_createTextureResources(void)
@@ -106,6 +107,11 @@ gapi_texture_t* gapi_createTexture(uint32_t width, uint32_t height, uint32_t mip
     groupDesc.entries = entries;
     tex->bindGroup = wgpuDeviceCreateBindGroup(wg.device, &groupDesc);
 
+    tex->next = s_textures;
+    if (s_textures)
+        s_textures->prev = tex;
+    s_textures = tex;
+
     ++s_numTextures;
     return tex;
 }
@@ -153,12 +159,68 @@ void gapi_destroyTexture(gapi_texture_t* tex)
         wgpuTextureViewRelease(tex->view);
     if (tex->texture)
         wgpuTextureRelease(tex->texture);
+
+    if (tex->prev)
+        tex->prev->next = tex->next;
+    else
+        s_textures = tex->next;
+    if (tex->next)
+        tex->next->prev = tex->prev;
+
     free(tex);
     --s_numTextures;
+}
+
+
+// r_apiCoverage heavy: the bytes of a texture, from the properties that WebGPU
+// gives. The size of a depth texel is not known; use 4 bytes.
+static uint64_t wgpu_textureBytes(WGPUTexture texture)
+{
+    if (texture == NULL)
+        return 0;
+    if (wgpuTextureGetDimension(texture) != WGPUTextureDimension_2D)
+        return 0;
+
+    const WGPUTextureFormat format = wgpuTextureGetFormat(texture);
+    const uint64_t texelBytes = (format == WGPUTextureFormat_R8Unorm) ? 1 : 4;
+    // The usage is not necessary for the sum. It is here for the API coverage.
+    const uint64_t copies = (wgpuTextureGetUsage(texture) == WGPUTextureUsage_None) ? 0 : 1;
+
+    uint64_t width = wgpuTextureGetWidth(texture);
+    uint64_t height = wgpuTextureGetHeight(texture);
+    const uint32_t levels = wgpuTextureGetMipLevelCount(texture);
+    uint64_t bytes = 0;
+    uint32_t level;
+
+    for (level = 0; level < levels; level++)
+    {
+        bytes += width * height * texelBytes;
+        width = (width > 1) ? width >> 1 : 1;
+        height = (height > 1) ? height >> 1 : 1;
+    }
+
+    return bytes * wgpuTextureGetDepthOrArrayLayers(texture) * wgpuTextureGetSampleCount(texture) * copies;
 }
 
 
 void gapi_printMemoryInfo(void)
 {
     ri.Printf(PRINT_ALL, "Number of textures: %u\n", s_numTextures);
+
+    if (!wg.heavyCoverage)
+        return;
+
+    uint64_t textureBytes = 0;
+    const gapi_texture_t* tex;
+    for (tex = s_textures; tex; tex = tex->next)
+        textureBytes += wgpu_textureBytes(tex->texture);
+
+    const uint64_t attachmentBytes = wgpu_textureBytes(wg.depthTexture) + wgpu_textureBytes(wg.offscreenTexture);
+    uint32_t bufferCount = 0;
+    const uint64_t bufferBytes = wgpu_geometryBufferBytes(&bufferCount);
+
+    ri.Printf(PRINT_ALL, "Texture memory: %.1f MB\n", textureBytes / (1024.0 * 1024.0));
+    ri.Printf(PRINT_ALL, "Attachment memory: %.1f MB\n", attachmentBytes / (1024.0 * 1024.0));
+    ri.Printf(PRINT_ALL, "Geometry buffer memory: %.1f MB in %u buffers\n",
+            bufferBytes / (1024.0 * 1024.0), bufferCount);
 }

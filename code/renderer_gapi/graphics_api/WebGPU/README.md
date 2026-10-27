@@ -128,6 +128,29 @@ If the surface has no `CopySrc` usage, the backend always draws into an offscree
 copies it to the surface at the end of the frame.
 `r_webgpuOffscreen 1` tests this path on a surface that has `CopySrc`.
 
+## API coverage
+
+`r_apiCoverage` selects how much of the WebGPU API the backend uses.
+It is for captures that test the API coverage of a capture and replay tool.
+Set it at startup, for example `+set r_apiCoverage heavy`, or set it and use `vid_restart`.
+
+| Value | Effect |
+|---|---|
+| `default` | The usual path. The backend uses only the calls that it needs to draw |
+| `heavy` | The backend also uses the calls in the list below. The frames do not change |
+
+With `heavy`, the backend does these steps:
+
+- It puts each view (world, portal, mirror, or model) into a render pass debug group.
+  It puts the copies at the end of the frame into a command encoder debug group.
+- It makes the render pipelines with `wgpuDeviceCreateRenderPipelineAsync`.
+  The first draw with a pipeline waits for it with `wgpuInstanceWaitAny`.
+- `gapiInfo` and `vkinfo` also print the adapter information of the device, the device limits,
+  the device and instance features, the instance limits, and the WGSL language features.
+- `gapiInfo` and `gpuMem` also print the texture, attachment, and buffer memory.
+  The texture and buffer getters (`wgpuTextureGet*`, `wgpuBufferGetSize`, `wgpuBufferGetUsage`)
+  give the numbers.
+
 ## Backend
 
 | File | Content |
