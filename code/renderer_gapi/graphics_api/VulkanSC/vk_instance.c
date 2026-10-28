@@ -9,6 +9,8 @@
 #include "vk_geometry.h"
 #include "tr_pipelines.h"
 #include "vk_pipeline.h"
+#include "vk_image_sampler.h"
+#include "vk_pipeline_export.h"
 #include "vk_frame.h"
 #include "vk_shaders.h"
 #include "vk_depth_attachment.h"
@@ -42,10 +44,6 @@ PFN_vkGetPhysicalDeviceSurfaceFormatsKHR		qvkGetPhysicalDeviceSurfaceFormatsKHR;
 PFN_vkGetPhysicalDeviceSurfacePresentModesKHR	qvkGetPhysicalDeviceSurfacePresentModesKHR;
 PFN_vkGetPhysicalDeviceSurfaceSupportKHR		qvkGetPhysicalDeviceSurfaceSupportKHR;
 
-#ifndef NDEBUG
-PFN_vkCreateDebugReportCallbackEXT				qvkCreateDebugReportCallbackEXT;
-PFN_vkDestroyDebugReportCallbackEXT				qvkDestroyDebugReportCallbackEXT;
-#endif
 
 PFN_vkAllocateCommandBuffers					qvkAllocateCommandBuffers;
 PFN_vkAllocateDescriptorSets					qvkAllocateDescriptorSets;
@@ -53,20 +51,27 @@ PFN_vkAllocateMemory							qvkAllocateMemory;
 PFN_vkBeginCommandBuffer						qvkBeginCommandBuffer;
 PFN_vkBindBufferMemory							qvkBindBufferMemory;
 PFN_vkBindImageMemory							qvkBindImageMemory;
-PFN_vkCmdBeginRenderPass						qvkCmdBeginRenderPass;
 PFN_vkCmdBindDescriptorSets						qvkCmdBindDescriptorSets;
 PFN_vkCmdBindIndexBuffer						qvkCmdBindIndexBuffer;
-PFN_vkCmdBindPipeline							qvkCmdBindPipeline;
+// Vulkan SC: render pass 2, VK_KHR_synchronization2, VK_KHR_copy_commands2,
+// timeline semaphores, and VK_EXT_extended_dynamic_state
+PFN_vkCmdPipelineBarrier2KHR	qvkCmdPipelineBarrier2KHR;
+PFN_vkQueueSubmit2KHR	qvkQueueSubmit2KHR;
+PFN_vkCmdCopyBufferToImage2KHR	qvkCmdCopyBufferToImage2KHR;
+PFN_vkCmdCopyImageToBuffer2KHR	qvkCmdCopyImageToBuffer2KHR;
+PFN_vkCreateRenderPass2	qvkCreateRenderPass2;
+PFN_vkCmdBeginRenderPass2	qvkCmdBeginRenderPass2;
+PFN_vkCmdEndRenderPass2	qvkCmdEndRenderPass2;
+PFN_vkWaitSemaphores	qvkWaitSemaphores;
+PFN_vkCmdSetCullModeEXT	qvkCmdSetCullModeEXT;
+PFN_vkCmdSetFrontFaceEXT	qvkCmdSetFrontFaceEXT;
+PFN_vkCmdBindPipeline						qvkCmdBindPipeline;
 PFN_vkCmdBindVertexBuffers						qvkCmdBindVertexBuffers;
 PFN_vkCmdBlitImage								qvkCmdBlitImage;
 PFN_vkCmdClearAttachments						qvkCmdClearAttachments;
-PFN_vkCmdCopyBufferToImage						qvkCmdCopyBufferToImage;
 PFN_vkCmdCopyImage								qvkCmdCopyImage;
-PFN_vkCmdCopyImageToBuffer                      qvkCmdCopyImageToBuffer;
 PFN_vkCmdDraw									qvkCmdDraw;
 PFN_vkCmdDrawIndexed							qvkCmdDrawIndexed;
-PFN_vkCmdEndRenderPass							qvkCmdEndRenderPass;
-PFN_vkCmdPipelineBarrier						qvkCmdPipelineBarrier;
 PFN_vkCmdPushConstants							qvkCmdPushConstants;
 PFN_vkCmdSetDepthBias							qvkCmdSetDepthBias;
 PFN_vkCmdSetScissor								qvkCmdSetScissor;
@@ -75,23 +80,22 @@ PFN_vkCreateBuffer								qvkCreateBuffer;
 PFN_vkCreateCommandPool							qvkCreateCommandPool;
 PFN_vkCreateDescriptorPool						qvkCreateDescriptorPool;
 PFN_vkCreateDescriptorSetLayout					qvkCreateDescriptorSetLayout;
-PFN_vkCreateFence								qvkCreateFence;
 PFN_vkCreateFramebuffer							qvkCreateFramebuffer;
 PFN_vkCreateGraphicsPipelines					qvkCreateGraphicsPipelines;
 PFN_vkCreateImage								qvkCreateImage;
 PFN_vkCreateImageView							qvkCreateImageView;
 PFN_vkCreatePipelineLayout						qvkCreatePipelineLayout;
-PFN_vkCreateRenderPass							qvkCreateRenderPass;
 PFN_vkCreateSampler								qvkCreateSampler;
 PFN_vkCreateSemaphore							qvkCreateSemaphore;
 PFN_vkDestroyBuffer								qvkDestroyBuffer;
 PFN_vkDestroyDescriptorSetLayout				qvkDestroyDescriptorSetLayout;
 PFN_vkDestroyDevice								qvkDestroyDevice;
-PFN_vkDestroyFence								qvkDestroyFence;
 PFN_vkDestroyFramebuffer						qvkDestroyFramebuffer;
 PFN_vkDestroyImage								qvkDestroyImage;
 PFN_vkDestroyImageView							qvkDestroyImageView;
 PFN_vkDestroyPipeline							qvkDestroyPipeline;
+PFN_vkCreatePipelineCache	qvkCreatePipelineCache;
+PFN_vkDestroyPipelineCache	qvkDestroyPipelineCache;
 PFN_vkDestroyPipelineLayout						qvkDestroyPipelineLayout;
 PFN_vkDestroyRenderPass							qvkDestroyRenderPass;
 PFN_vkDestroySampler							qvkDestroySampler;
@@ -106,12 +110,9 @@ PFN_vkGetImageMemoryRequirements				qvkGetImageMemoryRequirements;
 PFN_vkGetImageSubresourceLayout					qvkGetImageSubresourceLayout;
 PFN_vkMapMemory									qvkMapMemory;
 PFN_vkUnmapMemory                               qvkUnmapMemory;
-PFN_vkQueueSubmit								qvkQueueSubmit;
 PFN_vkQueueWaitIdle								qvkQueueWaitIdle;
 PFN_vkResetDescriptorPool						qvkResetDescriptorPool;
-PFN_vkResetFences								qvkResetFences;
 PFN_vkUpdateDescriptorSets						qvkUpdateDescriptorSets;
-PFN_vkWaitForFences								qvkWaitForFences;
 PFN_vkAcquireNextImageKHR						qvkAcquireNextImageKHR;
 PFN_vkCreateSwapchainKHR						qvkCreateSwapchainKHR;
 PFN_vkGetSwapchainImagesKHR						qvkGetSwapchainImagesKHR;
@@ -119,35 +120,6 @@ PFN_vkQueuePresentKHR							qvkQueuePresentKHR;
 
 
 
-#ifndef NDEBUG
-
-VKAPI_ATTR VkBool32 VKAPI_CALL vk_DebugCallback(
-        VkDebugReportFlagsEXT flags, VkDebugReportObjectTypeEXT object_type,
-        uint64_t object, size_t location, int32_t message_code, 
-        const char* layer_prefix, const char* message, void* user_data )
-{
-    ri.Printf(PRINT_WARNING, "%s\n", message);
-	return VK_FALSE;
-}
-
-
-static void vk_createDebugCallback( PFN_vkDebugReportCallbackEXT qvkDebugCB)
-{
-    ri.Printf( PRINT_ALL, " vk_createDebugCallback() \n" ); 
-    
-    VkDebugReportCallbackCreateInfoEXT desc;
-    desc.sType = VK_STRUCTURE_TYPE_DEBUG_REPORT_CALLBACK_CREATE_INFO_EXT;
-    desc.pNext = NULL;
-    desc.flags = VK_DEBUG_REPORT_WARNING_BIT_EXT |
-        VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT |
-        VK_DEBUG_REPORT_ERROR_BIT_EXT;
-    desc.pfnCallback = qvkDebugCB;
-    desc.pUserData = NULL;
-
-    VK_CHECK(qvkCreateDebugReportCallbackEXT(vk.instance, &desc, NULL, &vk.h_debugCB));
-}
-
-#endif
 
 
 static qboolean vk_createInstance(void)
@@ -227,10 +199,6 @@ static qboolean vk_createInstance(void)
 	}
 
 	uint32_t nInsExt = nWindowExt;
-#ifndef NDEBUG
-	// The Vulkan loader always has this extension.
-	ppInstanceExt[nInsExt++] = VK_EXT_DEBUG_REPORT_EXTENSION_NAME;
-#endif
 
 	uint32_t i = 0;
 	ri.Printf(PRINT_ALL, "--- Enable %d instance extensions: ---\n", nInsExt);
@@ -242,16 +210,8 @@ static qboolean vk_createInstance(void)
 	instanceCreateInfo.enabledExtensionCount = nInsExt;
 	instanceCreateInfo.ppEnabledExtensionNames = ppInstanceExt;
 
-#ifndef NDEBUG
-    ri.Printf(PRINT_ALL, "Using VK_LAYER_KHRONOS_validation\n");
-
-    const char* const validation_layer_name = "VK_LAYER_KHRONOS_validation";
-    instanceCreateInfo.enabledLayerCount = 1;
-	instanceCreateInfo.ppEnabledLayerNames = &validation_layer_name;
-#else
     instanceCreateInfo.enabledLayerCount = 0;
 	instanceCreateInfo.ppEnabledLayerNames = NULL;
-#endif
 
 
     VkResult e = qvkCreateInstance(&instanceCreateInfo, NULL, &vk.instance);
@@ -325,10 +285,6 @@ static qboolean vk_loadGlobalFunctions(void)
 	INIT_INSTANCE_FUNCTION(vkGetPhysicalDeviceSurfaceSupportKHR)
    
 
-#ifndef NDEBUG
-    INIT_INSTANCE_FUNCTION(vkCreateDebugReportCallbackEXT)
-	INIT_INSTANCE_FUNCTION(vkDestroyDebugReportCallbackEXT)	//
-#endif
 
     #undef INIT_INSTANCE_FUNCTION
 
@@ -565,11 +521,79 @@ static qboolean vk_selectQueueFamilyForPresentation(void)
 }
 
 
+// The object reservation (VkDeviceObjectReservationCreateInfo): the most
+// objects of each type that are alive at one time. Memory, command pools,
+// descriptor pools, and the swapchain are never freed in Vulkan SC, so for
+// them the count is the total ever made.
+static void vk_getObjectReservation(VkDeviceObjectReservationCreateInfo* r)
+{
+    memset(r, 0, sizeof(*r));
+    r->sType = VK_STRUCTURE_TYPE_DEVICE_OBJECT_RESERVATION_CREATE_INFO;
+    r->semaphoreRequestCount = 2 * MAX_SWAPCHAIN_IMAGES;
+    r->commandBufferRequestCount = 8;
+    r->fenceRequestCount = 8;
+    r->deviceMemoryRequestCount = 64;
+    r->bufferRequestCount = 16;
+    r->imageRequestCount = MAX_DRAWIMAGES + 16;
+    r->imageViewRequestCount = MAX_DRAWIMAGES + MAX_SWAPCHAIN_IMAGES + 16;
+    r->pipelineCacheRequestCount = 1;
+    r->pipelineLayoutRequestCount = 4;
+    r->renderPassRequestCount = 4;
+    r->descriptorSetLayoutRequestCount = 4;
+    r->samplerRequestCount = MAX_VK_SAMPLERS;
+    r->descriptorPoolRequestCount = 2;
+    r->descriptorSetRequestCount = MAX_DRAWIMAGES;
+    r->framebufferRequestCount = 2 * MAX_SWAPCHAIN_IMAGES;
+    r->commandPoolRequestCount = 4;
+    r->surfaceRequestCount = 1;
+    r->swapchainRequestCount = 1;
+    r->displayModeRequestCount = 1;
+    r->subpassDescriptionRequestCount = 4;
+    r->attachmentDescriptionRequestCount = 8;
+    r->descriptorSetLayoutBindingRequestCount = 4;
+    r->descriptorSetLayoutBindingLimit = 1;
+    // A 2048x2048 texture has 12 mip levels
+    r->maxImageViewMipLevels = 12;
+    r->maxImageViewArrayLayers = 1;
+
+    // One pipeline pool entry for each pipeline in the cache: each is created
+    // once, at startup.
+    static VkPipelineCacheCreateInfo cache_info;
+    static VkPipelinePoolSize pool_size;
+    size_t cache_size = 0;
+    uint32_t num_pipelines = 0;
+    const void* cache_data = vk_pipelineCacheData(&cache_size, &num_pipelines);
+    if (cache_data != NULL)
+    {
+        memset(&cache_info, 0, sizeof(cache_info));
+        cache_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+        cache_info.flags = VK_PIPELINE_CACHE_CREATE_READ_ONLY_BIT | VK_PIPELINE_CACHE_CREATE_USE_APPLICATION_STORAGE_BIT;
+        cache_info.initialDataSize = cache_size;
+        cache_info.pInitialData = cache_data;
+
+        memset(&pool_size, 0, sizeof(pool_size));
+        pool_size.sType = VK_STRUCTURE_TYPE_PIPELINE_POOL_SIZE;
+        pool_size.poolEntrySize = VK_PIPELINE_POOL_ENTRY_SIZE;
+        pool_size.poolEntryCount = num_pipelines;
+
+        r->pipelineCacheCreateInfoCount = 1;
+        r->pPipelineCacheCreateInfos = &cache_info;
+        r->pipelinePoolSizeCount = 1;
+        r->pPipelinePoolSizes = &pool_size;
+        r->graphicsPipelineRequestCount = num_pipelines;
+    }
+}
+
+
 static qboolean vk_createLogicalDevice(void)
 {
-    static const char* device_extensions[1] = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME
+    static const char* device_extensions[4] = {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
+        VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
+        VK_KHR_COPY_COMMANDS_2_EXTENSION_NAME,
+        VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME
     };
+    const uint32_t numDeviceExtensions = sizeof(device_extensions) / sizeof(device_extensions[0]);
 
     //  Not all graphics cards are capble of presenting images directly
     //  to a screen for various reasons, for example because they are 
@@ -579,7 +603,6 @@ static qboolean vk_createLogicalDevice(void)
     //  not actually part of the vulkan core. You have to enable the
     //  VK_KHR_swapchain device extension after querying for its support.
     uint32_t nDevExts = 0;
-    VkBool32 swapchainExtFound = 0;
 
     // To query the numbers of extensions available to a given physical device
     ri.Printf( PRINT_ALL, " Check for VK_KHR_swapchain extension. \n" );
@@ -592,20 +615,24 @@ static qboolean vk_createLogicalDevice(void)
     qvkEnumerateDeviceExtensionProperties( vk.physical_device, NULL, &nDevExts, pDeviceExt);
 
 
-    uint32_t j;
-    for (j = 0; j < nDevExts; j++)
+    uint32_t i, j;
+    for (i = 0; i < numDeviceExtensions; i++)
     {
-        if (!strcmp(device_extensions[0], pDeviceExt[j].extensionName))
+        VkBool32 found = VK_FALSE;
+        for (j = 0; j < nDevExts; j++)
         {
-            swapchainExtFound = VK_TRUE;
-            break;
+            if (!strcmp(device_extensions[i], pDeviceExt[j].extensionName))
+            {
+                found = VK_TRUE;
+                break;
+            }
         }
-    }
-    if (VK_FALSE == swapchainExtFound)
-    {
-        ri.Printf(PRINT_WARNING, "VK_KHR_SWAPCHAIN_EXTENSION_NAME is not available\n");
-        free(pDeviceExt);
-        return qfalse;
+        if (!found)
+        {
+            ri.Printf(PRINT_WARNING, "%s is not available\n", device_extensions[i]);
+            free(pDeviceExt);
+            return qfalse;
+        }
     }
 
     free(pDeviceExt);
@@ -626,15 +653,45 @@ static qboolean vk_createLogicalDevice(void)
     // features based on this query.
 	qvkGetPhysicalDeviceFeatures(vk.physical_device, &vk.features);
 
+    // Vulkan SC: the most objects of each type that the renderer makes, and
+    // the pipeline cache. The implementation reserves them at device creation.
+    vk_loadPipelineCache();
+    VkDeviceObjectReservationCreateInfo reservation;
+    vk_getObjectReservation(&reservation);
+
+    VkPhysicalDeviceVulkanSC10Features sc10_features;
+    memset(&sc10_features, 0, sizeof(sc10_features));
+    sc10_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_SC_1_0_FEATURES;
+    sc10_features.pNext = &reservation;
+
+    // The features of the API style that this renderer uses
+    VkPhysicalDeviceExtendedDynamicStateFeaturesEXT dynamic_state_features;
+    memset(&dynamic_state_features, 0, sizeof(dynamic_state_features));
+    dynamic_state_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
+    dynamic_state_features.pNext = &sc10_features;
+    dynamic_state_features.extendedDynamicState = VK_TRUE;
+
+    VkPhysicalDeviceSynchronization2FeaturesKHR sync2_features;
+    memset(&sync2_features, 0, sizeof(sync2_features));
+    sync2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR;
+    sync2_features.pNext = &dynamic_state_features;
+    sync2_features.synchronization2 = VK_TRUE;
+
+    VkPhysicalDeviceVulkan12Features vulkan12_features;
+    memset(&vulkan12_features, 0, sizeof(vulkan12_features));
+    vulkan12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+    vulkan12_features.pNext = &sync2_features;
+    vulkan12_features.timelineSemaphore = VK_TRUE;
+
     VkDeviceCreateInfo device_desc;
     device_desc.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    device_desc.pNext = NULL;
+    device_desc.pNext = &vulkan12_features;
     device_desc.flags = 0;
     device_desc.queueCreateInfoCount = 1;
     device_desc.pQueueCreateInfos = &queue_desc;
     device_desc.enabledLayerCount = 0;
     device_desc.ppEnabledLayerNames = NULL;
-    device_desc.enabledExtensionCount = 1;
+    device_desc.enabledExtensionCount = numDeviceExtensions;
     device_desc.ppEnabledExtensionNames = device_extensions;
     device_desc.pEnabledFeatures = &vk.features;
     
@@ -674,20 +731,25 @@ static void vk_loadDeviceFunctions(void)
 	INIT_DEVICE_FUNCTION(vkBeginCommandBuffer)
 	INIT_DEVICE_FUNCTION(vkBindBufferMemory)
 	INIT_DEVICE_FUNCTION(vkBindImageMemory)
-	INIT_DEVICE_FUNCTION(vkCmdBeginRenderPass)
 	INIT_DEVICE_FUNCTION(vkCmdBindDescriptorSets)
 	INIT_DEVICE_FUNCTION(vkCmdBindIndexBuffer)
+	INIT_DEVICE_FUNCTION(vkCmdPipelineBarrier2KHR)
+	INIT_DEVICE_FUNCTION(vkQueueSubmit2KHR)
+	INIT_DEVICE_FUNCTION(vkCmdCopyBufferToImage2KHR)
+	INIT_DEVICE_FUNCTION(vkCmdCopyImageToBuffer2KHR)
+	INIT_DEVICE_FUNCTION(vkCreateRenderPass2)
+	INIT_DEVICE_FUNCTION(vkCmdBeginRenderPass2)
+	INIT_DEVICE_FUNCTION(vkCmdEndRenderPass2)
+	INIT_DEVICE_FUNCTION(vkWaitSemaphores)
+	INIT_DEVICE_FUNCTION(vkCmdSetCullModeEXT)
+	INIT_DEVICE_FUNCTION(vkCmdSetFrontFaceEXT)
 	INIT_DEVICE_FUNCTION(vkCmdBindPipeline)
 	INIT_DEVICE_FUNCTION(vkCmdBindVertexBuffers)
 	INIT_DEVICE_FUNCTION(vkCmdBlitImage)
 	INIT_DEVICE_FUNCTION(vkCmdClearAttachments)
-	INIT_DEVICE_FUNCTION(vkCmdCopyBufferToImage)
 	INIT_DEVICE_FUNCTION(vkCmdCopyImage)
-    INIT_DEVICE_FUNCTION(vkCmdCopyImageToBuffer)
 	INIT_DEVICE_FUNCTION(vkCmdDraw)
 	INIT_DEVICE_FUNCTION(vkCmdDrawIndexed)
-	INIT_DEVICE_FUNCTION(vkCmdEndRenderPass)
-	INIT_DEVICE_FUNCTION(vkCmdPipelineBarrier)
 	INIT_DEVICE_FUNCTION(vkCmdPushConstants)
 	INIT_DEVICE_FUNCTION(vkCmdSetDepthBias)
 	INIT_DEVICE_FUNCTION(vkCmdSetScissor)
@@ -696,23 +758,22 @@ static void vk_loadDeviceFunctions(void)
 	INIT_DEVICE_FUNCTION(vkCreateCommandPool)
 	INIT_DEVICE_FUNCTION(vkCreateDescriptorPool)
 	INIT_DEVICE_FUNCTION(vkCreateDescriptorSetLayout)
-	INIT_DEVICE_FUNCTION(vkCreateFence)
 	INIT_DEVICE_FUNCTION(vkCreateFramebuffer)
 	INIT_DEVICE_FUNCTION(vkCreateGraphicsPipelines)
 	INIT_DEVICE_FUNCTION(vkCreateImage)
 	INIT_DEVICE_FUNCTION(vkCreateImageView)
 	INIT_DEVICE_FUNCTION(vkCreatePipelineLayout)
-	INIT_DEVICE_FUNCTION(vkCreateRenderPass)
 	INIT_DEVICE_FUNCTION(vkCreateSampler)
 	INIT_DEVICE_FUNCTION(vkCreateSemaphore)
 	INIT_DEVICE_FUNCTION(vkDestroyBuffer)
 	INIT_DEVICE_FUNCTION(vkDestroyDescriptorSetLayout)
 	INIT_DEVICE_FUNCTION(vkDestroyDevice)
-	INIT_DEVICE_FUNCTION(vkDestroyFence)
 	INIT_DEVICE_FUNCTION(vkDestroyFramebuffer)
 	INIT_DEVICE_FUNCTION(vkDestroyImage)
 	INIT_DEVICE_FUNCTION(vkDestroyImageView)
 	INIT_DEVICE_FUNCTION(vkDestroyPipeline)
+	INIT_DEVICE_FUNCTION(vkCreatePipelineCache)
+	INIT_DEVICE_FUNCTION(vkDestroyPipelineCache)
 	INIT_DEVICE_FUNCTION(vkDestroyPipelineLayout)
 	INIT_DEVICE_FUNCTION(vkDestroyRenderPass)
 	INIT_DEVICE_FUNCTION(vkDestroySampler)
@@ -727,12 +788,9 @@ static void vk_loadDeviceFunctions(void)
 	INIT_DEVICE_FUNCTION(vkGetImageSubresourceLayout)
 	INIT_DEVICE_FUNCTION(vkMapMemory)
 	INIT_DEVICE_FUNCTION(vkUnmapMemory)
-	INIT_DEVICE_FUNCTION(vkQueueSubmit)
 	INIT_DEVICE_FUNCTION(vkQueueWaitIdle)
 	INIT_DEVICE_FUNCTION(vkResetDescriptorPool)
-	INIT_DEVICE_FUNCTION(vkResetFences)
 	INIT_DEVICE_FUNCTION(vkUpdateDescriptorSets)
-	INIT_DEVICE_FUNCTION(vkWaitForFences)
     
 	INIT_DEVICE_FUNCTION(vkCreateSwapchainKHR)
 	INIT_DEVICE_FUNCTION(vkGetSwapchainImagesKHR)
@@ -749,10 +807,6 @@ qboolean vk_getProcAddress(void)
     if (!vk_loadGlobalFunctions())
         return qfalse;
 
-#ifndef NDEBUG
-	// Create debug callback.
-    vk_createDebugCallback(vk_DebugCallback);
-#endif
 
     // The window surface needs to be created right after the instance creation,
     // because it can actually influence the presentation mode selection.
@@ -777,6 +831,22 @@ qboolean vk_getProcAddress(void)
 
     // a call to retrieve queue handle
 	qvkGetDeviceQueue(vk.device, vk.queue_family_index, 0, &vk.queue);
+
+    // The pipeline cache, with the same create info as the reservation
+    size_t cache_size = 0;
+    uint32_t num_pipelines = 0;
+    const void* cache_data = vk_pipelineCacheData(&cache_size, &num_pipelines);
+    vk.pipeline_cache = VK_NULL_HANDLE;
+    if (cache_data != NULL)
+    {
+        VkPipelineCacheCreateInfo cache_info;
+        memset(&cache_info, 0, sizeof(cache_info));
+        cache_info.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+        cache_info.flags = VK_PIPELINE_CACHE_CREATE_READ_ONLY_BIT | VK_PIPELINE_CACHE_CREATE_USE_APPLICATION_STORAGE_BIT;
+        cache_info.initialDataSize = cache_size;
+        cache_info.pInitialData = cache_data;
+        VK_CHECK(qvkCreatePipelineCache(vk.device, &cache_info, NULL, &vk.pipeline_cache));
+    }
     return qtrue;
 }
 
@@ -784,6 +854,11 @@ qboolean vk_getProcAddress(void)
 void vk_clearProcAddress(void)
 {
 
+    if (vk.pipeline_cache != VK_NULL_HANDLE)
+    {
+        qvkDestroyPipelineCache(vk.device, vk.pipeline_cache, NULL);
+        vk.pipeline_cache = VK_NULL_HANDLE;
+    }
     ri.Printf( PRINT_ALL, " Destroy logical device: vk.device. \n" );
     // Device queues are implicitly cleaned up when the device is destroyed
     // so we don't need to do anything in clean up
@@ -797,12 +872,6 @@ void vk_clearProcAddress(void)
 	if (vk.surface != VK_NULL_HANDLE)
 		qvkDestroySurfaceKHR(vk.instance, vk.surface, NULL);
 
-#ifndef NDEBUG
-    ri.Printf( PRINT_ALL, " Destroy callback function: vk.h_debugCB. \n" );
-
-	if (vk.h_debugCB != VK_NULL_HANDLE)
-		qvkDestroyDebugReportCallbackEXT(vk.instance, vk.h_debugCB, NULL);
-#endif
 
     ri.Printf( PRINT_ALL, " Destroy instance: vk.instance. \n" );
 	if (vk.instance != VK_NULL_HANDLE)
@@ -830,10 +899,6 @@ void vk_clearProcAddress(void)
 	qvkGetPhysicalDeviceSurfaceFormatsKHR		= NULL;
 	qvkGetPhysicalDeviceSurfacePresentModesKHR	= NULL;
 	qvkGetPhysicalDeviceSurfaceSupportKHR		= NULL;
-#ifndef NDEBUG
-	qvkCreateDebugReportCallbackEXT				= NULL;
-	qvkDestroyDebugReportCallbackEXT			= NULL;
-#endif
 
 	qvkAllocateCommandBuffers					= NULL;
 	qvkAllocateDescriptorSets					= NULL;
@@ -841,20 +906,25 @@ void vk_clearProcAddress(void)
 	qvkBeginCommandBuffer						= NULL;
 	qvkBindBufferMemory							= NULL;
 	qvkBindImageMemory							= NULL;
-	qvkCmdBeginRenderPass						= NULL;
 	qvkCmdBindDescriptorSets					= NULL;
 	qvkCmdBindIndexBuffer						= NULL;
+	qvkCmdPipelineBarrier2KHR = NULL;
+	qvkQueueSubmit2KHR = NULL;
+	qvkCmdCopyBufferToImage2KHR = NULL;
+	qvkCmdCopyImageToBuffer2KHR = NULL;
+	qvkCreateRenderPass2 = NULL;
+	qvkCmdBeginRenderPass2 = NULL;
+	qvkCmdEndRenderPass2 = NULL;
+	qvkWaitSemaphores = NULL;
+	qvkCmdSetCullModeEXT = NULL;
+	qvkCmdSetFrontFaceEXT = NULL;
 	qvkCmdBindPipeline							= NULL;
 	qvkCmdBindVertexBuffers						= NULL;
 	qvkCmdBlitImage								= NULL;
 	qvkCmdClearAttachments						= NULL;
-	qvkCmdCopyBufferToImage						= NULL;
 	qvkCmdCopyImage								= NULL;
-    qvkCmdCopyImageToBuffer                     = NULL;
 	qvkCmdDraw									= NULL;
 	qvkCmdDrawIndexed							= NULL;
-	qvkCmdEndRenderPass							= NULL;
-	qvkCmdPipelineBarrier						= NULL;
 	qvkCmdPushConstants							= NULL;
 	qvkCmdSetDepthBias							= NULL;
 	qvkCmdSetScissor							= NULL;
@@ -863,23 +933,22 @@ void vk_clearProcAddress(void)
 	qvkCreateCommandPool						= NULL;
 	qvkCreateDescriptorPool						= NULL;
 	qvkCreateDescriptorSetLayout				= NULL;
-	qvkCreateFence								= NULL;
 	qvkCreateFramebuffer						= NULL;
 	qvkCreateGraphicsPipelines					= NULL;
 	qvkCreateImage								= NULL;
 	qvkCreateImageView							= NULL;
 	qvkCreatePipelineLayout						= NULL;
-	qvkCreateRenderPass							= NULL;
 	qvkCreateSampler							= NULL;
 	qvkCreateSemaphore							= NULL;
 	qvkDestroyBuffer							= NULL;
 	qvkDestroyDescriptorSetLayout				= NULL;
 	qvkDestroyDevice							= NULL;
-	qvkDestroyFence								= NULL;
 	qvkDestroyFramebuffer						= NULL;
 	qvkDestroyImage								= NULL;
 	qvkDestroyImageView							= NULL;
 	qvkDestroyPipeline							= NULL;
+	qvkCreatePipelineCache = NULL;
+	qvkDestroyPipelineCache = NULL;
 	qvkDestroyPipelineLayout					= NULL;
 	qvkDestroyRenderPass						= NULL;
 	qvkDestroySampler							= NULL;
@@ -894,12 +963,9 @@ void vk_clearProcAddress(void)
 	qvkGetImageSubresourceLayout				= NULL;
 	qvkMapMemory								= NULL;
     qvkUnmapMemory                              = NULL;
-	qvkQueueSubmit								= NULL;
 	qvkQueueWaitIdle							= NULL;
 	qvkResetDescriptorPool						= NULL;
-	qvkResetFences								= NULL;
 	qvkUpdateDescriptorSets						= NULL;
-	qvkWaitForFences							= NULL;
 	qvkAcquireNextImageKHR						= NULL;
 	qvkCreateSwapchainKHR						= NULL;
 	qvkGetSwapchainImagesKHR					= NULL;

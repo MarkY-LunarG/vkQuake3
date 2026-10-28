@@ -159,6 +159,9 @@ static void vk_destroy_staging_buffer(void)
 }
 
 
+// The most copy regions of one upload: one for each mip level.
+#define MAX_COPY_REGIONS    32
+
 static void vk_stagBufferToDeviceLocalMem(VkImage image, VkBufferImageCopy* pRegion, uint32_t num_region)
 {
     // An application can copy buffer and image data using several methods
@@ -192,18 +195,10 @@ static void vk_stagBufferToDeviceLocalMem(VkImage image, VkBufferImageCopy* pReg
     }
 
 
-	VkBufferMemoryBarrier barrier;
-	barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-	barrier.pNext = NULL;
-	barrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-	barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.buffer = StagBuf.buff;
-	barrier.offset = 0;
-	barrier.size = VK_WHOLE_SIZE;
     
-	qvkCmdPipelineBarrier(cmd_buf, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 1, &barrier, 0, NULL);
+	vk_cmdBufferBarrier(cmd_buf, StagBuf.buff,
+		VK_PIPELINE_STAGE_2_HOST_BIT_KHR, VK_ACCESS_2_HOST_WRITE_BIT_KHR,
+		VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR, VK_ACCESS_2_TRANSFER_READ_BIT_KHR);
 
     record_image_layout_transition(cmd_buf, image, VK_IMAGE_ASPECT_COLOR_BIT,
             0, VK_IMAGE_LAYOUT_UNDEFINED, VK_ACCESS_TRANSFER_WRITE_BIT,
@@ -219,8 +214,33 @@ static void vk_stagBufferToDeviceLocalMem(VkImage image, VkBufferImageCopy* pReg
     // curLevel is the number of regions to copy.
     // pRegions is a pointer to an array of VkBufferImageCopy structures
     // specifying the regions to copy.
-    qvkCmdCopyBufferToImage(cmd_buf, StagBuf.buff, image,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, num_region, pRegion);
+    // VK_KHR_copy_commands2
+    VkBufferImageCopy2KHR regions[MAX_COPY_REGIONS];
+    uint32_t i;
+    if (num_region > MAX_COPY_REGIONS)
+    {
+        ri.Error(ERR_FATAL, "vk_stagBufferToDeviceLocalMem: %u copy regions, the most is %d\n", num_region, MAX_COPY_REGIONS);
+    }
+    for (i = 0; i < num_region; i++)
+    {
+        regions[i].sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2_KHR;
+        regions[i].pNext = NULL;
+        regions[i].bufferOffset = pRegion[i].bufferOffset;
+        regions[i].bufferRowLength = pRegion[i].bufferRowLength;
+        regions[i].bufferImageHeight = pRegion[i].bufferImageHeight;
+        regions[i].imageSubresource = pRegion[i].imageSubresource;
+        regions[i].imageOffset = pRegion[i].imageOffset;
+        regions[i].imageExtent = pRegion[i].imageExtent;
+    }
+    VkCopyBufferToImageInfo2KHR copy_info;
+    copy_info.sType = VK_STRUCTURE_TYPE_COPY_BUFFER_TO_IMAGE_INFO_2_KHR;
+    copy_info.pNext = NULL;
+    copy_info.srcBuffer = StagBuf.buff;
+    copy_info.dstImage = image;
+    copy_info.dstImageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+    copy_info.regionCount = num_region;
+    copy_info.pRegions = regions;
+    qvkCmdCopyBufferToImage2KHR(cmd_buf, &copy_info);
 
     record_image_layout_transition(cmd_buf, image,
             VK_IMAGE_ASPECT_COLOR_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
@@ -230,18 +250,7 @@ static void vk_stagBufferToDeviceLocalMem(VkImage image, VkBufferImageCopy* pReg
     
     VK_CHECK(qvkEndCommandBuffer(cmd_buf));
 
-	VkSubmitInfo submit_info;
-	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submit_info.pNext = NULL;
-	submit_info.waitSemaphoreCount = 0;
-	submit_info.pWaitSemaphores = NULL;
-	submit_info.pWaitDstStageMask = NULL;
-	submit_info.commandBufferCount = 1;
-	submit_info.pCommandBuffers = &cmd_buf;
-	submit_info.signalSemaphoreCount = 0;
-	submit_info.pSignalSemaphores = NULL;
-
-	VK_CHECK(qvkQueueSubmit(vk.queue, 1, &submit_info, VK_NULL_HANDLE));	
+	vk_submit(cmd_buf, VK_NULL_HANDLE, 0, VK_NULL_HANDLE, VK_NULL_HANDLE, 0);
     VK_CHECK(qvkQueueWaitIdle(vk.queue));
     
 	qvkFreeCommandBuffers(vk.device, vk.command_pool, 1, &cmd_buf);

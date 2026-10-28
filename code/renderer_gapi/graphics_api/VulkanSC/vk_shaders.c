@@ -26,11 +26,13 @@ void vk_getShaderCode(const gapi_shaderType_t shader_type, const VkBool32 isClip
 	{
 		fs->code = multi_texture_frag_spv;
 		fs->size = multi_texture_frag_spv_size;
+		fs->fileName = "multi_texture_frag.spv";
 	}
 	else
 	{
 		fs->code = single_texture_frag_spv;
 		fs->size = single_texture_frag_spv_size;
+		fs->fileName = "single_texture_frag.spv";
 	}
 
 	// Without shaderClipDistance, the fragment shader discards with the clip plane
@@ -38,10 +40,12 @@ void vk_getShaderCode(const gapi_shaderType_t shader_type, const VkBool32 isClip
 	{
 		vs->code = multiTexture ? multi_texture_clipping_plane_vert_spv : single_texture_clipping_plane_vert_spv;
 		vs->size = multiTexture ? multi_texture_clipping_plane_vert_spv_size : single_texture_clipping_plane_vert_spv_size;
+		vs->fileName = multiTexture ? "multi_texture_clipping_plane_vert.spv" : "single_texture_clipping_plane_vert.spv";
 	}
 	else
 	{
 		vs->code = multiTexture ? multi_texture_vert_spv : single_texture_vert_spv;
 		vs->size = multiTexture ? multi_texture_vert_spv_size : single_texture_vert_spv_size;
+		vs->fileName = multiTexture ? "multi_texture_vert.spv" : "single_texture_vert.spv";
 	}
 }

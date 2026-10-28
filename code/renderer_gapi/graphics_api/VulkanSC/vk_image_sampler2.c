@@ -57,7 +57,6 @@ const static textureMode_t texModes[] = {
 */
 
 
-#define MAX_VK_SAMPLERS     32
 static struct Vk_Sampler_Def s_SamplerDefs[MAX_VK_SAMPLERS] = {0};
 
 static uint32_t s_NumSamplers = 0;

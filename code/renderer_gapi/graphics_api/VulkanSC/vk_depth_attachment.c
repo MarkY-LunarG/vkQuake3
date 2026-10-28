@@ -101,18 +101,7 @@ void vk_createDepthAttachment(int Width, int Height)
 
     VK_CHECK(qvkEndCommandBuffer(pCB));
 
-    VkSubmitInfo submit_info;
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.pNext = NULL;
-    submit_info.waitSemaphoreCount = 0;
-    submit_info.pWaitSemaphores = NULL;
-    submit_info.pWaitDstStageMask = NULL;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &pCB;
-    submit_info.signalSemaphoreCount = 0;
-    submit_info.pSignalSemaphores = NULL;
-
-    VK_CHECK(qvkQueueSubmit(vk.queue, 1, &submit_info, VK_NULL_HANDLE));
+    vk_submit(pCB, VK_NULL_HANDLE, 0, VK_NULL_HANDLE, VK_NULL_HANDLE, 0);
     VK_CHECK(qvkQueueWaitIdle(vk.queue));
     qvkFreeCommandBuffers(vk.device, vk.command_pool, 1, &pCB);
 }

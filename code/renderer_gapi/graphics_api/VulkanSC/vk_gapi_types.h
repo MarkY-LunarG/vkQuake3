@@ -28,6 +28,9 @@ struct gapi_pipeline_s {
 	VkPipeline pipeline;
 	// The pipeline has dynamic depth bias (Q3 shader polygonOffset).
 	qboolean polygonOffset;
+	// Dynamic state (VK_EXT_extended_dynamic_state), set by gapi_draw
+	VkCullModeFlags cullMode;
+	VkFrontFace frontFace;
 };
 
 #endif

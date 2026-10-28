@@ -12,6 +12,7 @@
 typedef struct {
 	const unsigned char* code;
 	int size;
+	const char* fileName;	// for the pipeline JSON
 } vk_shaderCode_t;
 
 // Vulkan SC has no shader modules: a pipeline comes from the pipeline cache.

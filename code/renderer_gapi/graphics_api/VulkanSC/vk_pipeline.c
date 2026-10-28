@@ -1,6 +1,7 @@
 #include "tr_local.h"
 #include "vk_instance.h"
 #include "vk_shaders.h"
+#include "vk_pipeline_export.h"
 #include "vk_pipeline.h"
 #include "vk_gapi_types.h"
 #include "tr_state_bits.h"
@@ -120,6 +121,7 @@ void vk_createPipelineLayout(void)
         
         // To create descriptor set layout objects
 		VK_CHECK(qvkCreateDescriptorSetLayout(vk.device, &desc, NULL, &vk.set_layout));
+		vk_pipelineExportDescriptorSetLayout(&desc, vk.set_layout);
 	}
 
 
@@ -165,10 +167,22 @@ void vk_createPipelineLayout(void)
     //
     // Each pipeline is created using a pipeline layout.
     VK_CHECK(qvkCreatePipelineLayout(vk.device, &desc, NULL, &vk.pipeline_layout));
+    vk_pipelineExportPipelineLayout(&desc, vk.pipeline_layout);
 }
 
 
 
+void vk_pipelineName(const gapi_pipelineDesc_t* def, char* name, int size)
+{
+    // Only the fields that change the create info: the cull mode and the
+    // mirror are dynamic state.
+    Com_sprintf(name, size, "s%08x_t%d_p%d_c%d_l%d_h%d", def->stateBits, (int)def->shaderType,
+        def->polygonOffset ? 1 : 0, def->clipPlane ? 1 : 0, def->linePrimitives ? 1 : 0, (int)def->shadowPhase);
+}
+
+
+// Create the pipeline from the pipeline cache. In export mode, record its
+// create info for the pipeline JSON, and make no pipeline.
 static void vk_create_pipeline(const gapi_pipelineDesc_t* def, VkPipeline* pPipeLine)
 {
 
@@ -243,6 +257,8 @@ static void vk_create_pipeline(const gapi_pipelineDesc_t* def, VkPipeline* pPipe
     // Vulkan SC has no shader modules: the pipeline cache has the shaders
     shaderStages[0].module = VK_NULL_HANDLE;
     shaderStages[1].module = VK_NULL_HANDLE;
+    vk_shaderCode_t vs_code, fs_code;
+    vk_getShaderCode(def->shaderType, def->clipPlane, &vs_code, &fs_code);
 
 	// ============== Vertex Input Description =================
     // Applications specify vertex input attribute and vertex input binding
@@ -342,24 +358,11 @@ static void vk_create_pipeline(const gapi_pipelineDesc_t* def, VkPipeline* pPipe
 	rasterization_state.rasterizerDiscardEnable = VK_FALSE;
 	rasterization_state.polygonMode = (def->stateBits & GLS_POLYMODE_LINE) ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL;
 
-    switch ( def->cullType )
-    {
-        case GAPI_CULL_TWO_SIDED:
-            rasterization_state.cullMode = VK_CULL_MODE_NONE;
-            break;
-        case GAPI_CULL_FRONT_SIDED:
-            rasterization_state.cullMode = 
-                (def->mirror ? VK_CULL_MODE_FRONT_BIT : VK_CULL_MODE_BACK_BIT);
-            break;
-        case GAPI_CULL_BACK_SIDED:
-            rasterization_state.cullMode = 
-                (def->mirror ? VK_CULL_MODE_BACK_BIT : VK_CULL_MODE_FRONT_BIT);
-            break;
-    }
-
-    
-    // how fragments are generated for geometry.
-	rasterization_state.frontFace = VK_FRONT_FACE_CLOCKWISE; // Q3 defaults to clockwise vertex order
+    // The cull mode and the front face are dynamic state
+    // (VK_EXT_extended_dynamic_state). gapi_draw sets them from the pipeline
+    // description, so that the normal and the mirror views use one pipeline.
+	rasterization_state.cullMode = VK_CULL_MODE_NONE;
+	rasterization_state.frontFace = VK_FRONT_FACE_CLOCKWISE;
 
 	rasterization_state.depthBiasEnable = def->polygonOffset ? VK_TRUE : VK_FALSE;
 	rasterization_state.depthBiasConstantFactor = 0.0f; // dynamic depth bias state
@@ -537,8 +540,9 @@ static void vk_create_pipeline(const gapi_pipelineDesc_t* def, VkPipeline* pPipe
 	dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
 	dynamic_state.pNext = NULL;
 	dynamic_state.flags = 0;
-	dynamic_state.dynamicStateCount = 3;
-	VkDynamicState dynamic_state_array[3] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_DEPTH_BIAS };
+	dynamic_state.dynamicStateCount = 5;
+	VkDynamicState dynamic_state_array[5] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_DEPTH_BIAS,
+		VK_DYNAMIC_STATE_CULL_MODE_EXT, VK_DYNAMIC_STATE_FRONT_FACE_EXT };
 	dynamic_state.pDynamicStates = dynamic_state_array;
 
 
@@ -627,9 +631,200 @@ static void vk_create_pipeline(const gapi_pipelineDesc_t* def, VkPipeline* pPipe
     // TODO: provide the handle of a valid pipeline cache object, 
     // 1 is the length of the pCreateInfos and pPipelines arrays.
     //
-	VK_CHECK(qvkCreateGraphicsPipelines(vk.device, VK_NULL_HANDLE, 1, &create_info, NULL, pPipeLine));
+	// Vulkan SC: the pipeline cache has the pipeline with this identifier
+	char name[MAX_QPATH];
+	vk_pipelineName(def, name, sizeof(name));
+
+	VkPipelineOfflineCreateInfo offline_info;
+	memset(&offline_info, 0, sizeof(offline_info));
+	offline_info.sType = VK_STRUCTURE_TYPE_PIPELINE_OFFLINE_CREATE_INFO;
+	offline_info.pNext = create_info.pNext;
+	vk_pipelineIdentifier(name, offline_info.pipelineIdentifier);
+	offline_info.matchControl = VK_PIPELINE_MATCH_CONTROL_APPLICATION_UUID_EXACT_MATCH;
+	offline_info.poolEntrySize = VK_PIPELINE_POOL_ENTRY_SIZE;
+	create_info.pNext = &offline_info;
+
+	*pPipeLine = VK_NULL_HANDLE;
+	if (vk_pipelineExportEnabled())
+	{
+		vk_pipelineExportShader(vs_code.fileName, vs_code.code, vs_code.size);
+		vk_pipelineExportShader(fs_code.fileName, fs_code.code, fs_code.size);
+		vk_pipelineExportGraphicsPipeline(name, &create_info, vs_code.fileName, fs_code.fileName);
+		return;
+	}
+
+	const VkResult result = qvkCreateGraphicsPipelines(vk.device, vk.pipeline_cache, 1, &create_info, NULL, pPipeLine);
+	if (result != VK_SUCCESS)
+	{
+		*pPipeLine = VK_NULL_HANDLE;
+		ri.Printf(PRINT_WARNING, "Vulkan SC: could not create pipeline %s (%s); its draws are skipped\n", name, cvtResToStr(result));
+	}
 }
 
+
+
+// ============== Vulkan SC pipeline cache ==============
+//
+// The pipeline cache (q3.vksc.bin) and its manifest (q3_pipelines.txt) are in
+// QVKSC_PIPELINE_DIR, or in <fs_homepath>/vulkansc. The manifest has the name
+// of each pipeline in the cache. Every pipeline is created at startup, and
+// gapi_createPipeline gets the pipeline of its name.
+
+#define MAX_CACHE_PIPELINES     1024
+
+typedef struct {
+	char name[64];
+	VkPipeline pipeline;
+} cachePipeline_t;
+
+static void* s_cacheData = NULL;		// application storage: kept while the device lives
+static size_t s_cacheSize = 0;
+static cachePipeline_t s_cachePipelines[MAX_CACHE_PIPELINES];
+static uint32_t s_numCachePipelines = 0;
+
+
+static void vk_pipelineDirectory(char* path, int size)
+{
+	const char* dir = getenv("QVKSC_PIPELINE_DIR");
+	if (dir != NULL && dir[0] != '\0')
+		Q_strncpyz(path, dir, size);
+	else
+		Com_sprintf(path, size, "%s/vulkansc", ri.Cvar_Get("fs_homepath", "", 0)->string);
+}
+
+
+static void* vk_readWholeFile(const char* path, size_t* pSize)
+{
+	FILE* file = fopen(path, "rb");
+	if (file == NULL)
+		return NULL;
+	fseek(file, 0, SEEK_END);
+	const long size = ftell(file);
+	fseek(file, 0, SEEK_SET);
+	void* data = (size > 0) ? malloc(size + 1) : NULL;
+	if (data == NULL || fread(data, 1, size, file) != (size_t)size)
+	{
+		free(data);
+		fclose(file);
+		return NULL;
+	}
+	fclose(file);
+	((char*)data)[size] = '\0';
+	*pSize = (size_t)size;
+	return data;
+}
+
+
+qboolean vk_loadPipelineCache(void)
+{
+	char dir[MAX_OSPATH];
+	char path[MAX_OSPATH];
+	vk_pipelineDirectory(dir, sizeof(dir));
+	s_numCachePipelines = 0;
+
+	if (vk_pipelineExportEnabled())
+	{
+		ri.Printf(PRINT_ALL, " Vulkan SC: export mode, no pipeline cache\n");
+		return qfalse;
+	}
+
+	Com_sprintf(path, sizeof(path), "%s/%s", dir, VK_PIPELINE_CACHE_FILE);
+	s_cacheData = vk_readWholeFile(path, &s_cacheSize);
+	if (s_cacheData == NULL)
+	{
+		ri.Printf(PRINT_WARNING, "Vulkan SC: no pipeline cache %s; nothing is drawn\n", path);
+		return qfalse;
+	}
+
+	Com_sprintf(path, sizeof(path), "%s/%s", dir, VK_PIPELINE_MANIFEST_FILE);
+	size_t manifestSize = 0;
+	char* manifest = (char*)vk_readWholeFile(path, &manifestSize);
+	if (manifest == NULL)
+	{
+		ri.Printf(PRINT_WARNING, "Vulkan SC: no pipeline manifest %s; nothing is drawn\n", path);
+		free(s_cacheData);
+		s_cacheData = NULL;
+		return qfalse;
+	}
+	char* line = strtok(manifest, "\r\n");
+	while (line != NULL && s_numCachePipelines < MAX_CACHE_PIPELINES)
+	{
+		Q_strncpyz(s_cachePipelines[s_numCachePipelines].name, line, sizeof(s_cachePipelines[0].name));
+		s_cachePipelines[s_numCachePipelines].pipeline = VK_NULL_HANDLE;
+		s_numCachePipelines++;
+		line = strtok(NULL, "\r\n");
+	}
+	free(manifest);
+
+	ri.Printf(PRINT_ALL, " Vulkan SC pipeline cache: %s, %u bytes, %u pipelines\n", dir, (uint32_t)s_cacheSize, s_numCachePipelines);
+	return qtrue;
+}
+
+
+const void* vk_pipelineCacheData(size_t* pSize, uint32_t* pNumPipelines)
+{
+	*pSize = s_cacheSize;
+	*pNumPipelines = s_numCachePipelines;
+	return s_cacheData;
+}
+
+
+void vk_createCachePipelines(void)
+{
+	uint32_t i, created = 0;
+	if (vk.pipeline_cache == VK_NULL_HANDLE)
+		return;
+
+	for (i = 0; i < s_numCachePipelines; i++)
+	{
+		gapi_pipelineDesc_t desc;
+		int shaderType, polygonOffset, clipPlane, linePrimitives, shadowPhase;
+		memset(&desc, 0, sizeof(desc));
+		if (sscanf(s_cachePipelines[i].name, "s%08x_t%d_p%d_c%d_l%d_h%d", &desc.stateBits, &shaderType,
+				&polygonOffset, &clipPlane, &linePrimitives, &shadowPhase) != 6)
+		{
+			ri.Printf(PRINT_WARNING, "Vulkan SC: bad pipeline name in the manifest: %s\n", s_cachePipelines[i].name);
+			continue;
+		}
+		desc.shaderType = (gapi_shaderType_t)shaderType;
+		desc.polygonOffset = polygonOffset ? qtrue : qfalse;
+		desc.clipPlane = clipPlane ? qtrue : qfalse;
+		desc.linePrimitives = linePrimitives ? qtrue : qfalse;
+		desc.shadowPhase = (gapi_shadowPhase_t)shadowPhase;
+
+		vk_create_pipeline(&desc, &s_cachePipelines[i].pipeline);
+		if (s_cachePipelines[i].pipeline != VK_NULL_HANDLE)
+			created++;
+	}
+	ri.Printf(PRINT_ALL, " Vulkan SC: created %u of %u pipelines at startup\n", created, s_numCachePipelines);
+}
+
+
+void vk_destroyCachePipelines(void)
+{
+	uint32_t i;
+	for (i = 0; i < s_numCachePipelines; i++)
+	{
+		if (s_cachePipelines[i].pipeline != VK_NULL_HANDLE)
+			qvkDestroyPipeline(vk.device, s_cachePipelines[i].pipeline, NULL);
+		s_cachePipelines[i].pipeline = VK_NULL_HANDLE;
+	}
+}
+
+
+static VkPipeline vk_findCachePipeline(const gapi_pipelineDesc_t* desc)
+{
+	char name[MAX_QPATH];
+	uint32_t i;
+	vk_pipelineName(desc, name, sizeof(name));
+	for (i = 0; i < s_numCachePipelines; i++)
+	{
+		if (!strcmp(s_cachePipelines[i].name, name))
+			return s_cachePipelines[i].pipeline;
+	}
+	ri.Printf(PRINT_WARNING, "Vulkan SC: pipeline %s is not in the pipeline manifest; its draws are skipped\n", name);
+	return VK_NULL_HANDLE;
+}
 
 
 void vk_destroyPipelineLayout(void)
@@ -649,14 +844,39 @@ gapi_pipeline_t* gapi_createPipeline(const gapi_pipelineDesc_t* desc)
         ri.Error(ERR_FATAL, "gapi_createPipeline: out of memory\n");
     }
 
-    vk_create_pipeline(desc, &handle->pipeline);
+    handle->pipeline = VK_NULL_HANDLE;
+    if (vk_pipelineExportEnabled())
+    {
+        vk_create_pipeline(desc, &handle->pipeline);
+    }
+    else if (vk.pipeline_cache != VK_NULL_HANDLE)
+    {
+        handle->pipeline = vk_findCachePipeline(desc);
+    }
     handle->polygonOffset = desc->polygonOffset;
+
+    // Q3 vertices are clockwise. A mirror view reverses the order on the
+    // screen, so it reverses the front face.
+    switch (desc->cullType)
+    {
+        case GAPI_CULL_FRONT_SIDED:
+            handle->cullMode = VK_CULL_MODE_BACK_BIT;
+            break;
+        case GAPI_CULL_BACK_SIDED:
+            handle->cullMode = VK_CULL_MODE_FRONT_BIT;
+            break;
+        case GAPI_CULL_TWO_SIDED:
+        default:
+            handle->cullMode = VK_CULL_MODE_NONE;
+            break;
+    }
+    handle->frontFace = desc->mirror ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
     return handle;
 }
 
 
 void gapi_destroyPipeline(gapi_pipeline_t* pipeline)
 {
-    qvkDestroyPipeline(vk.device, pipeline->pipeline, NULL);
+    // The pipeline stays: it belongs to the pipelines made at startup
     free(pipeline);
 }

@@ -265,6 +265,10 @@ void gapi_draw(const gapi_pipeline_t* pipeline, const gapi_draw_t* draw)
     if (!vk_frameActive())
         return;
 
+    // Vulkan SC: the pipeline is not in the pipeline cache.
+    if (pipeline->pipeline == VK_NULL_HANDLE)
+        return;
+
     const qboolean multitexture = (draw->texCoords1 != NULL);
 
 	// configure vertex data stream
@@ -309,6 +313,8 @@ void gapi_draw(const gapi_pipeline_t* pipeline, const gapi_draw_t* draw)
 
     // bind pipeline
 	qvkCmdBindPipeline(vk.command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->pipeline);
+	qvkCmdSetCullModeEXT(vk.command_buffer, pipeline->cullMode);
+	qvkCmdSetFrontFaceEXT(vk.command_buffer, pipeline->frontFace);
 
 	// configure pipeline's dynamic state
 

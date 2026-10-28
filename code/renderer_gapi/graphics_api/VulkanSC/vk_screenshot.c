@@ -59,8 +59,10 @@ static void vk_read_pixels(unsigned char* pBuf, uint32_t W, uint32_t H)
 
     //////////////////////////////////////////////////////////
 
-    VkBufferImageCopy image_copy;
+    VkBufferImageCopy2KHR image_copy;
     {
+        image_copy.sType = VK_STRUCTURE_TYPE_BUFFER_IMAGE_COPY_2_KHR;
+        image_copy.pNext = NULL;
         image_copy.bufferOffset = 0;
         image_copy.bufferRowLength = W;
         image_copy.bufferImageHeight = H;
@@ -89,12 +91,14 @@ static void vk_read_pixels(unsigned char* pBuf, uint32_t W, uint32_t H)
     // image layout transitions or a queue family ownership transfer for the specified image 
     // subresource range.
 
-    VkImageMemoryBarrier image_barrier;
+    VkImageMemoryBarrier2KHR image_barrier;
     {
-        image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        image_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR;
         image_barrier.pNext = NULL;
-        image_barrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT;
-        image_barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+        image_barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR;
+        image_barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT_KHR;
+        image_barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT_KHR;
+        image_barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT_KHR;
         image_barrier.oldLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
         image_barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
         image_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -126,21 +130,25 @@ static void vk_read_pixels(unsigned char* pBuf, uint32_t W, uint32_t H)
     begin_info.pInheritanceInfo = NULL;
     VK_CHECK(qvkBeginCommandBuffer(cmdBuf, &begin_info));
 
-    qvkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &image_barrier); 
-    qvkCmdCopyImageToBuffer(cmdBuf, vk.swapchain_images_array[vk.idx_swapchain_image], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer, 1, &image_copy);
+    VkDependencyInfoKHR dependency;
+    memset(&dependency, 0, sizeof(dependency));
+    dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR;
+    dependency.imageMemoryBarrierCount = 1;
+    dependency.pImageMemoryBarriers = &image_barrier;
+    qvkCmdPipelineBarrier2KHR(cmdBuf, &dependency);
+
+    VkCopyImageToBufferInfo2KHR copy_info;
+    copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_BUFFER_INFO_2_KHR;
+    copy_info.pNext = NULL;
+    copy_info.srcImage = vk.swapchain_images_array[vk.idx_swapchain_image];
+    copy_info.srcImageLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+    copy_info.dstBuffer = buffer;
+    copy_info.regionCount = 1;
+    copy_info.pRegions = &image_copy;
+    qvkCmdCopyImageToBuffer2KHR(cmdBuf, &copy_info);
     VK_CHECK(qvkEndCommandBuffer(cmdBuf));
 
-    VkSubmitInfo submit_info;
-    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit_info.pNext = NULL;
-    submit_info.waitSemaphoreCount = 0;
-    submit_info.pWaitSemaphores = NULL;
-    submit_info.pWaitDstStageMask = NULL;
-    submit_info.commandBufferCount = 1;
-    submit_info.pCommandBuffers = &cmdBuf;
-    submit_info.signalSemaphoreCount = 0;
-    submit_info.pSignalSemaphores = NULL;
-    VK_CHECK(qvkQueueSubmit(vk.queue, 1, &submit_info, VK_NULL_HANDLE));
+    vk_submit(cmdBuf, VK_NULL_HANDLE, 0, VK_NULL_HANDLE, VK_NULL_HANDLE, 0);
 
     VK_CHECK(qvkQueueWaitIdle(vk.queue));
 

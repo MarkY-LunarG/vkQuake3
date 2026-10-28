@@ -77,76 +77,28 @@ void vk_destroySwapchain(void)
 }
 
 
-// Make the swapchain, its image views, the depth image, and the framebuffers
-// again for the current surface. Textures and pipelines stay. Return qfalse
-// if the surface has a size of 0, for example a minimized window. Then the
-// frame is skipped, and the next frame tries again.
-static qboolean vk_rebuildSwapchain(void)
-{
-    qvkDeviceWaitIdle(vk.device);
-
-    VK_CHECK(qvkGetPhysicalDeviceSurfaceCapabilitiesKHR(vk.physical_device, vk.surface, &vk.surface_caps));
-    if (vk.surface_caps.currentExtent.width == 0 || vk.surface_caps.currentExtent.height == 0)
-    {
-        s_rebuild = qtrue;
-        return qfalse;
-    }
-
-    ri.Printf(PRINT_ALL, " Rebuild the swapchain\n");
-
-    vk_destroyFrameBuffers();
-    vk_destroyDepthAttachment();
-    vk_createSwapChain(vk.device, vk.surface, vk.surface_format);
-    vk_createDepthAttachment(vk.swapchain_extent.width, vk.swapchain_extent.height);
-    vk_createFrameBuffers();
-
-    s_rebuild = qfalse;
-    return qtrue;
-}
-
-
-// Make the surface again after VK_ERROR_SURFACE_LOST_KHR. If that fails,
-// restart the renderer.
-static qboolean vk_recreateSurface(void)
-{
-    qvkDeviceWaitIdle(vk.device);
-
-    ri.Printf(PRINT_ALL, " The surface is lost. Make it again.\n");
-
-    vk_destroyFrameBuffers();
-    vk_destroyDepthAttachment();
-    vk_destroySwapchain();
-    qvkDestroySurfaceKHR(vk.instance, vk.surface, NULL);
-    vk.surface = VK_NULL_HANDLE;
-
-    VkBool32 presentation_supported = VK_FALSE;
-    if (vk_createSurfaceImpl())
-    {
-        VK_CHECK(qvkGetPhysicalDeviceSurfaceSupportKHR(
-                    vk.physical_device, vk.queue_family_index, vk.surface, &presentation_supported));
-    }
-
-    if (!presentation_supported)
-    {
-        ri.Printf(PRINT_WARNING, "Vulkan: cannot make the surface again, restart the renderer\n");
-        s_surfaceLost = qfalse;
-        ri.Cmd_ExecuteText(EXEC_APPEND, "vid_restart\n");
-        return qfalse;
-    }
-
-    s_surfaceLost = qfalse;
-    s_rebuild = qtrue;
-    return qtrue;
-}
-
-
+// Vulkan SC cannot destroy a swapchain, and reserves one. Thus the swapchain
+// is made once. A request to make it again (a change of r_swapInterval, or a
+// suboptimal swapchain) keeps the swapchain. A lost surface or an out-of-date
+// swapchain is a fatal error.
 qboolean vk_prepareSwapchain(void)
 {
-    if (s_surfaceLost && !vk_recreateSurface())
-        return qfalse;
+    static qboolean s_warned = qfalse;
 
-    if (s_rebuild && !vk_rebuildSwapchain())
-        return qfalse;
+    if (s_surfaceLost)
+    {
+        ri.Error(ERR_FATAL, "Vulkan SC: the display surface is lost\n");
+    }
+
+    if (s_rebuild)
+    {
+        if (!s_warned)
+        {
+            ri.Printf(PRINT_WARNING, "Vulkan SC: the swapchain cannot be made again; it is kept\n");
+            s_warned = qtrue;
+        }
+        s_rebuild = qfalse;
+    }
 
     return qtrue;
 }
@@ -154,7 +106,8 @@ qboolean vk_prepareSwapchain(void)
 
 qboolean vk_rebuildSwapchainNow(void)
 {
-    return vk_rebuildSwapchain();
+    ri.Error(ERR_FATAL, "Vulkan SC: the swapchain is out of date\n");
+    return qfalse;
 }
 
 

@@ -3,6 +3,8 @@
 #include "vk_instance.h"
 #include "vk_geometry.h"
 #include "vk_frame.h"
+#include "vk_cmd.h"
+#include "vk_pipeline_export.h"
 #include "vk_swapchain.h"
 #include "glConfig.h"
 
@@ -64,7 +66,10 @@ qboolean vk_frameActive(void)
 
 VkSemaphore sema_imageAvailable;
 VkSemaphore sema_renderFinished;
-VkFence fence_renderFinished;
+// The frames that the GPU has finished: frame N signals the value N
+// (vkQueueSubmit2KHR), and the next frame waits for it (vkWaitSemaphores).
+static VkSemaphore sema_frameTimeline;
+static uint64_t s_frameTimelineValue = 0;
 
 /*
    Use of a presentable image must occur only after the image is
@@ -109,24 +114,14 @@ void vk_create_sync_primitives(void)
     VK_CHECK(qvkCreateSemaphore(vk.device, &desc, NULL, &sema_renderFinished));
 
 
-    VkFenceCreateInfo fence_desc;
-    fence_desc.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    fence_desc.pNext = NULL;
-    
-    // VK_FENCE_CREATE_SIGNALED_BIT specifies that the fence object
-    // is created in the signaled state. Otherwise, it is created 
-    // in the unsignaled state.
-    fence_desc.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-
-    // vk.device is the logical device that creates the fence.
-    // fence_desc is an instance of the VkFenceCreateInfo structure
-    // pAllocator controls host memory allocation as described
-    // in the Memory Allocation chapter. which contains information
-    // about how the fence is to be created.
-    // "fence_renderFinished" is a handle in which the resulting
-    // fence object is returned.
-
-    VK_CHECK(qvkCreateFence(vk.device, &fence_desc, NULL, &fence_renderFinished));
+    VkSemaphoreTypeCreateInfo timeline_desc;
+    timeline_desc.sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO;
+    timeline_desc.pNext = NULL;
+    timeline_desc.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
+    timeline_desc.initialValue = 0;
+    desc.pNext = &timeline_desc;
+    s_frameTimelineValue = 0;
+    VK_CHECK(qvkCreateSemaphore(vk.device, &desc, NULL, &sema_frameTimeline));
 }
 
 
@@ -138,7 +133,7 @@ void vk_destroy_sync_primitives(void)
 	qvkDestroySemaphore(vk.device, sema_renderFinished, NULL);
 
     // To destroy a fence, 
-	qvkDestroyFence(vk.device, fence_renderFinished, NULL);
+	qvkDestroySemaphore(vk.device, sema_frameTimeline, NULL);
 }
 
 
@@ -175,7 +170,9 @@ static void vk_createRenderPassImpl(VkDevice device)
 // how many samples to use for each of them and how their contents 
 // should be handled throughout the rendering operations.
 
-	VkAttachmentDescription attachments[2];
+	VkAttachmentDescription2 attachments[2];
+	memset(attachments, 0, sizeof(attachments));
+	attachments[0].sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2;
 	attachments[0].flags = 0;
 
 //  The format of the color attachment should match the format of the
@@ -190,6 +187,7 @@ static void vk_createRenderPassImpl(VkDevice device)
 	attachments[0].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 	attachments[0].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
+	attachments[1].sType = VK_STRUCTURE_TYPE_ATTACHMENT_DESCRIPTION_2;
 	attachments[1].flags = 0;
 	attachments[1].format = vk.fmt_DepthStencil;
 	attachments[1].samples = VK_SAMPLE_COUNT_1_BIT;
@@ -215,15 +213,23 @@ static void vk_createRenderPassImpl(VkDevice device)
     // with an image.
 
     // Images used as color attachment
-	VkAttachmentReference color_attachment_ref;
+	VkAttachmentReference2 color_attachment_ref;
+	memset(&color_attachment_ref, 0, sizeof(color_attachment_ref));
+	color_attachment_ref.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2;
+	color_attachment_ref.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	color_attachment_ref.attachment = 0;
 	color_attachment_ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
 
-	VkAttachmentReference depth_attachment_ref;
+	VkAttachmentReference2 depth_attachment_ref;
+	memset(&depth_attachment_ref, 0, sizeof(depth_attachment_ref));
+	depth_attachment_ref.sType = VK_STRUCTURE_TYPE_ATTACHMENT_REFERENCE_2;
+	depth_attachment_ref.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
 	depth_attachment_ref.attachment = 1;
 	depth_attachment_ref.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
-	VkSubpassDescription subpass;
+	VkSubpassDescription2 subpass;
+	memset(&subpass, 0, sizeof(subpass));
+	subpass.sType = VK_STRUCTURE_TYPE_SUBPASS_DESCRIPTION_2;
 	subpass.flags = 0;
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.inputAttachmentCount = 0;
@@ -235,8 +241,9 @@ static void vk_createRenderPassImpl(VkDevice device)
 	subpass.preserveAttachmentCount = 0;
 	subpass.pPreserveAttachments = NULL;
 
-	VkRenderPassCreateInfo desc;
-	desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+	VkRenderPassCreateInfo2 desc;
+	memset(&desc, 0, sizeof(desc));
+	desc.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO_2;
 	desc.pNext = NULL;
 	desc.flags = 0;
 	
@@ -256,7 +263,8 @@ static void vk_createRenderPassImpl(VkDevice device)
 	desc.dependencyCount = 0;
 	desc.pDependencies = NULL;
 
-	VK_CHECK(qvkCreateRenderPass(device, &desc, NULL, &vk.render_pass));
+	VK_CHECK(qvkCreateRenderPass2(device, &desc, NULL, &vk.render_pass));
+	vk_pipelineExportRenderPass2(&desc, vk.render_pass);
 }
 
 
@@ -474,7 +482,14 @@ void gapi_beginFrame(void)
     // Wait for the previous frame first. Its submit waits on
     // sema_imageAvailable, and vkAcquireNextImageKHR must not get a
     // semaphore that has a pending wait.
-	VK_CHECK(qvkWaitForFences(vk.device, 1, &fence_renderFinished, VK_FALSE, 1e9));
+	VkSemaphoreWaitInfo wait_info;
+	wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
+	wait_info.pNext = NULL;
+	wait_info.flags = 0;
+	wait_info.semaphoreCount = 1;
+	wait_info.pSemaphores = &sema_frameTimeline;
+	wait_info.pValues = &s_frameTimelineValue;
+	VK_CHECK(qvkWaitSemaphores(vk.device, &wait_info, 1000000000ull));
 
     // The draws record no commands until a frame starts.
     s_frameActive = qfalse;
@@ -536,7 +551,6 @@ void gapi_beginFrame(void)
     //  To set the state of fences to unsignaled from the host
     //  "1" is the number of fences to reset. 
     //  "fence_renderFinished" is the fence handle to reset.
-	VK_CHECK(qvkResetFences(vk.device, 1, &fence_renderFinished));
 
     //  commandBuffer must not be in the recording or pending state.
     
@@ -567,34 +581,10 @@ void gapi_beginFrame(void)
     // is submitted to a queue, it defines a memory dependency between
     // commands that were submitted before it, and those submitted
     // after it.
-	VkBufferMemoryBarrier barrier;
-	barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-	barrier.pNext = NULL;
-	barrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-	barrier.buffer = vk_getIndexBuffer();
-	barrier.offset = 0;
-	barrier.size = VK_WHOLE_SIZE;
-
-    // If vkCmdPipelineBarrier was recorded outside a render pass instance, 
-    // the first synchronization scope includes all commands that occur earlier
-    // in submission order. The second synchronization scope includes all
-    // commands that occur later in submission order.  
-    //
-    
-    // VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT specifies read access 
-    // to a vertex buffer as part of a drawing command, bound by
-    // vkCmdBindVertexBuffers.
-	barrier.dstAccessMask = VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT;
-	
-    // To record a pipeline barrier
-    qvkCmdPipelineBarrier(vk.command_buffer, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 0, NULL, 1, &barrier, 0, NULL);
-
-    // VK_ACCESS_INDEX_READ_BIT specifies read access to an index buffer 
-    // as part of an indexed drawing command, bound by vkCmdBindIndexBuffer.
-    barrier.dstAccessMask = VK_ACCESS_INDEX_READ_BIT;
-    qvkCmdPipelineBarrier(vk.command_buffer, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_VERTEX_INPUT_BIT, 0, 0, NULL, 1, &barrier, 0, NULL);
+	// Host writes to the index buffer, before the vertex input reads it
+	vk_cmdBufferBarrier(vk.command_buffer, vk_getIndexBuffer(),
+		VK_PIPELINE_STAGE_2_HOST_BIT_KHR, VK_ACCESS_2_HOST_WRITE_BIT_KHR,
+		VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT_KHR, VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT_KHR | VK_ACCESS_2_INDEX_READ_BIT_KHR);
 
 }
 
@@ -604,6 +594,11 @@ void gapi_beginFrame(void)
 	/// ignore clear_values[0] which corresponds to color attachment
 	clear_values[1].depthStencil.depth = 1.0;
 	clear_values[1].depthStencil.stencil = 0;
+
+	VkSubpassBeginInfo subpass_beginInfo;
+	subpass_beginInfo.sType = VK_STRUCTURE_TYPE_SUBPASS_BEGIN_INFO;
+	subpass_beginInfo.pNext = NULL;
+	subpass_beginInfo.contents = VK_SUBPASS_CONTENTS_INLINE;
 
 	VkRenderPassBeginInfo renderPass_beginInfo;
 	renderPass_beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
@@ -620,7 +615,7 @@ void gapi_beginFrame(void)
     renderPass_beginInfo.clearValueCount = 2;
 	renderPass_beginInfo.pClearValues = clear_values;
 
-	qvkCmdBeginRenderPass(vk.command_buffer, &renderPass_beginInfo, VK_SUBPASS_CONTENTS_INLINE);
+	qvkCmdBeginRenderPass2(vk.command_buffer, &renderPass_beginInfo, &subpass_beginInfo);
 
     s_frameActive = qtrue;
 }
@@ -632,67 +627,19 @@ void gapi_endFrame(void)
 	if (!s_frameActive)
 		return;
 
-	qvkCmdEndRenderPass(vk.command_buffer);
+	VkSubpassEndInfo subpass_endInfo;
+	subpass_endInfo.sType = VK_STRUCTURE_TYPE_SUBPASS_END_INFO;
+	subpass_endInfo.pNext = NULL;
+	qvkCmdEndRenderPass2(vk.command_buffer, &subpass_endInfo);
 	
     VK_CHECK(qvkEndCommandBuffer(vk.command_buffer));
 
 
-	VkPipelineStageFlags wait_dst_stage_mask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    
-    // Queue submission and synchronization
-	VkSubmitInfo submit_info;
-	submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submit_info.pNext = NULL;
-	submit_info.waitSemaphoreCount = 1;
-	submit_info.pWaitSemaphores = &sema_imageAvailable;
-	submit_info.pWaitDstStageMask = &wait_dst_stage_mask;
-	submit_info.commandBufferCount = 1;
-	submit_info.pCommandBuffers = &vk.command_buffer;
-	submit_info.signalSemaphoreCount = 1;
-    // specify which semaphones to signal once the command buffers
-    // have finished execution
-	submit_info.pSignalSemaphores = &sema_renderFinished;
-
-
-    //  queue is the queue that the command buffers will be submitted to.
-    //  1 is the number of elements in the pSubmits array.
-    //  pSubmits is a pointer to an array of VkSubmitInfo structures,
-    //  each specifying a command buffer submission batch.
-    //
-    //  fence_renderFinished is an optional handle to a fence to be signaled 
-    //  once all submitted command buffers have completed execution. 
-    //  If fence is not VK_NULL_HANDLE, it defines a fence signal operation.
-    //
-    //  Submission can be a high overhead operation, and applications should 
-    //  attempt to batch work together into as few calls to vkQueueSubmit as possible.
-    //
-    //  vkQueueSubmit is a queue submission command, with each batch defined
-    //  by an element of pSubmits as an instance of the VkSubmitInfo structure.
-    //  Batches begin execution in the order they appear in pSubmits, but may
-    //  complete out of order.
-    //
-    //  Fence and semaphore operations submitted with vkQueueSubmit 
-    //  have additional ordering constraints compared to other 
-    //  submission commands, with dependencies involving previous and
-    //  subsequent queue operations. 
-    //
-    //  The order that batches appear in pSubmits is used to determine
-    //  submission order, and thus all the implicit ordering guarantees
-    //  that respect it. Other than these implicit ordering guarantees
-    //  and any explicit synchronization primitives, these batches may
-    //  overlap or otherwise execute out of order. If any command buffer
-    //  submitted to this queue is in the executable state, it is moved
-    //  to the pending state. Once execution of all submissions of a 
-    //  command buffer complete, it moves from the pending state,
-    //  back to the executable state.
-    //
-    //  If a command buffer was recorded with the 
-    //  VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT flag,
-    //  it instead moves back to the invalid state.
-       
-    //  To submit command buffers to a queue 
-    
-    VK_CHECK(qvkQueueSubmit(vk.queue, 1, &submit_info, fence_renderFinished));
+	// Wait for the acquired image before the color attachment output, and
+	// signal the frame value on the timeline semaphore.
+	s_frameTimelineValue++;
+	vk_submit(vk.command_buffer, sema_imageAvailable, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT_KHR,
+		sema_renderFinished, sema_frameTimeline, s_frameTimelineValue);
 
     VkPresentInfoKHR present_info;
 	present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;

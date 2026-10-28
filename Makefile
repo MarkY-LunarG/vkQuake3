@@ -1395,11 +1395,17 @@ endef
 ifdef VULKANSC_SDK
   VULKANSC_INCLUDE ?= $(VULKANSC_SDK)/include
 endif
-VULKANSC_CFLAGS = $(GAPI_CFLAGS) -I$(RVULKANSCDIR) -I$(RVULKANSCDIR)/include -I$(VULKANSC_INCLUDE)
+VULKANSC_CFLAGS = $(GAPI_CFLAGS) -I$(RVULKANSCDIR) -I$(VULKANSC_INCLUDE)
 
 define DO_VULKANSC_CC
 $(echo_cmd) "REF_CC $<"
 $(Q)$(CC) $(SHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(VULKANSC_CFLAGS) $(OPTIMIZE) -o $@ -c $<
+endef
+
+# The pipeline JSON exporter of the Vulkan SC renderer is C++ (VulkanSC/vulkansc_samples).
+define DO_VULKANSC_CXX
+$(echo_cmd) "REF_CXX $<"
+$(Q)$(CXX) $(SHLIBCFLAGS) -std=c++17 -O2 $(VULKANSC_CFLAGS) -o $@ -c $<
 endef
 
 define DO_VULKAN_CC
@@ -2061,6 +2067,8 @@ Q3VKOBJ = $(Q3GAPIOBJ) \
 
 # The Vulkan SC renderer: the shared code and graphics_api/VulkanSC
 Q3VKSCOBJ = $(Q3GAPIOBJ) \
+  $(B)/renderer_gapi/VulkanSC/vk_pipeline_export.o \
+  $(B)/renderer_gapi/VulkanSC/VulkanSCPipelineExport.o \
   $(B)/renderer_gapi/VulkanSC/vk_instance.o \
   $(B)/renderer_gapi/VulkanSC/vk_init.o \
   $(B)/renderer_gapi/VulkanSC/vk_cmd.o \
@@ -2567,7 +2575,7 @@ $(B)/renderer_vulkansc_$(SHLIBNAME): $(Q3VKSCOBJ) $(JPGOBJ)
 	$(if $(VULKANSC_INCLUDE),,$(error Set VULKANSC_INCLUDE to the Vulkan SC headers, or VULKANSC_SDK))
 	$(echo_cmd) "LD $@"
 	$(Q)$(CC) $(CFLAGS) $(SHLIBLDFLAGS) -o $@ $(Q3VKSCOBJ) $(JPGOBJ) \
-		$(THREAD_LIBS) $(RENDERER_LIBS) $(LIBSDLMAIN) $(LIBS)
+		$(THREAD_LIBS) $(RENDERER_LIBS) $(LIBSDLMAIN) $(LIBS) -lstdc++
 
 ######################## WEBGPU ##############################
 
@@ -3155,6 +3163,12 @@ $(B)/renderer_gapi/VulkanSC/%.o: $(RVULKANSCDIR)/%.c
 
 $(B)/renderer_gapi/VulkanSC/%.o: $(RVULKANSCDIR)/shaders/%.c
 	$(DO_VULKANSC_CC)
+
+$(B)/renderer_gapi/VulkanSC/%.o: $(RVULKANSCDIR)/%.cpp
+	$(DO_VULKANSC_CXX)
+
+$(B)/renderer_gapi/VulkanSC/%.o: $(RVULKANSCDIR)/vulkansc_samples/%.cpp
+	$(DO_VULKANSC_CXX)
 
 $(B)/renderer_gapi/WebGPU/%.o: $(RWEBGPUDIR)/%.c
 	$(DO_WEBGPU_CC)

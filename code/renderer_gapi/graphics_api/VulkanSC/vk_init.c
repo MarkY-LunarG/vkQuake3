@@ -7,6 +7,7 @@
 #include "vk_pipeline.h"
 #include "vk_geometry.h"
 #include "vk_shaders.h"
+#include "vk_pipeline_export.h"
 #include "graphics_api/gapi.h"
 #include "glConfig.h"
 
@@ -61,6 +62,9 @@ qboolean gapi_init(struct SDL_Window* window)
     
     vk_createPipelineLayout();
 
+    // Vulkan SC: every pipeline of the pipeline cache, before the first frame
+    vk_createCachePipelines();
+
 	//
 	vk_createVertexBuffer();
     vk_createIndexBuffer();;
@@ -92,6 +96,14 @@ void gapi_shutdown(void)
 {
     ri.Printf( PRINT_ALL, "gapi_shutdown()\n" );
 
+    if (vk_pipelineExportEnabled())
+    {
+        if (vk_pipelineExportWrite())
+            ri.Printf(PRINT_ALL, "Vulkan SC: wrote the pipeline JSON\n");
+        else
+            ri.Printf(PRINT_WARNING, "Vulkan SC: could not write the pipeline JSON\n");
+    }
+
     vk_destroyDepthAttachment();
 
     vk_destroyFrameBuffers();
@@ -104,6 +116,7 @@ void gapi_shutdown(void)
     
 
 //
+    vk_destroyCachePipelines();
     vk_destroyPipelineLayout();
 //
     vk_destroy_commands();

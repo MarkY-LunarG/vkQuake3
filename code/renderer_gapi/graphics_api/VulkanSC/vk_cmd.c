@@ -1,5 +1,6 @@
 #include "VKimpl.h"
 #include "vk_instance.h"
+#include "vk_cmd.h"
 //  ===============  Command Buffer Lifecycle ====================
 // Each command buffer is always in one of the following states:
 //
@@ -89,6 +90,15 @@ void vk_create_command_pool(VkCommandPool* pPool)
     desc.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT | VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
     desc.queueFamilyIndex = vk.queue_family_index;
 
+    // Vulkan SC: the command buffer memory of the pool is reserved when the
+    // pool is created.
+    VkCommandPoolMemoryReservationCreateInfo reservation;
+    reservation.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_MEMORY_RESERVATION_CREATE_INFO;
+    reservation.pNext = NULL;
+    reservation.commandPoolReservedSize = VK_COMMAND_POOL_RESERVED_SIZE;
+    reservation.commandPoolMaxCommandBuffers = VK_COMMAND_POOL_MAX_COMMAND_BUFFERS;
+    desc.pNext = &reservation;
+
     VK_CHECK(qvkCreateCommandPool(vk.device, &desc, NULL, pPool));
 }
 
@@ -165,10 +175,12 @@ void record_image_layout_transition(
         VkImageLayout new_layout )
 {
 
-	VkImageMemoryBarrier barrier = {0};
-	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+	VkImageMemoryBarrier2KHR barrier = {0};
+	barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2_KHR;
 	barrier.pNext = NULL;
+	barrier.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR;
 	barrier.srcAccessMask = src_access_flags;
+	barrier.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR;
 	barrier.dstAccessMask = dst_access_flags;
 	barrier.oldLayout = old_layout;
 	barrier.newLayout = new_layout;
@@ -187,7 +199,78 @@ void record_image_layout_transition(
 // between commands that were submitted before it, and those submitted after it.
     
     // cmdBuf is the command buffer into which the command is recorded.
-	qvkCmdPipelineBarrier(cmdBuf, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT,
-        VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0,	0, NULL, 0, NULL, 1, &barrier);
+	VkDependencyInfoKHR dependency = {0};
+	dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR;
+	dependency.imageMemoryBarrierCount = 1;
+	dependency.pImageMemoryBarriers = &barrier;
+	qvkCmdPipelineBarrier2KHR(cmdBuf, &dependency);
 }
 
+
+
+void vk_cmdBufferBarrier(VkCommandBuffer cmdBuf, VkBuffer buffer,
+        VkPipelineStageFlags2KHR src_stage, VkAccessFlags2KHR src_access,
+        VkPipelineStageFlags2KHR dst_stage, VkAccessFlags2KHR dst_access)
+{
+	VkBufferMemoryBarrier2KHR barrier = {0};
+	barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2_KHR;
+	barrier.srcStageMask = src_stage;
+	barrier.srcAccessMask = src_access;
+	barrier.dstStageMask = dst_stage;
+	barrier.dstAccessMask = dst_access;
+	barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+	barrier.buffer = buffer;
+	barrier.offset = 0;
+	barrier.size = VK_WHOLE_SIZE;
+
+	VkDependencyInfoKHR dependency = {0};
+	dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO_KHR;
+	dependency.bufferMemoryBarrierCount = 1;
+	dependency.pBufferMemoryBarriers = &barrier;
+	qvkCmdPipelineBarrier2KHR(cmdBuf, &dependency);
+}
+
+
+void vk_submit(VkCommandBuffer cmdBuf, VkSemaphore wait_binary, VkPipelineStageFlags2KHR wait_stage,
+        VkSemaphore signal_binary, VkSemaphore signal_timeline, uint64_t timeline_value)
+{
+	VkSemaphoreSubmitInfoKHR wait = {0};
+	wait.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR;
+	wait.semaphore = wait_binary;
+	wait.stageMask = wait_stage;
+
+	VkSemaphoreSubmitInfoKHR signals[2];
+	uint32_t num_signals = 0;
+	memset(signals, 0, sizeof(signals));
+	if (signal_binary != VK_NULL_HANDLE)
+	{
+		signals[num_signals].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR;
+		signals[num_signals].semaphore = signal_binary;
+		signals[num_signals].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR;
+		num_signals++;
+	}
+	if (signal_timeline != VK_NULL_HANDLE)
+	{
+		signals[num_signals].sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO_KHR;
+		signals[num_signals].semaphore = signal_timeline;
+		signals[num_signals].value = timeline_value;
+		signals[num_signals].stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT_KHR;
+		num_signals++;
+	}
+
+	VkCommandBufferSubmitInfoKHR command_buffer = {0};
+	command_buffer.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO_KHR;
+	command_buffer.commandBuffer = cmdBuf;
+
+	VkSubmitInfo2KHR submit = {0};
+	submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2_KHR;
+	submit.waitSemaphoreInfoCount = (wait_binary != VK_NULL_HANDLE) ? 1 : 0;
+	submit.pWaitSemaphoreInfos = &wait;
+	submit.commandBufferInfoCount = 1;
+	submit.pCommandBufferInfos = &command_buffer;
+	submit.signalSemaphoreInfoCount = num_signals;
+	submit.pSignalSemaphoreInfos = signals;
+
+	VK_CHECK(qvkQueueSubmit2KHR(vk.queue, 1, &submit, VK_NULL_HANDLE));
+}
