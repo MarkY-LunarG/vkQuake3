@@ -39,6 +39,10 @@ endif
 ifndef BUILD_RENDERER_WEBGPU
   BUILD_RENDERER_WEBGPU=0
 endif
+# The Vulkan SC renderer needs the Vulkan SC headers (VULKANSC_INCLUDE).
+ifndef BUILD_RENDERER_VULKANSC
+  BUILD_RENDERER_VULKANSC=0
+endif
 ifndef BUILD_AUTOUPDATER  # DON'T build unless you mean to!
   BUILD_AUTOUPDATER=0
 endif
@@ -282,6 +286,7 @@ RGL2DIR=$(MOUNT_DIR)/renderergl2
 RGAPIDIR=$(MOUNT_DIR)/renderer_gapi
 RVULKANDIR=$(RGAPIDIR)/graphics_api/Vulkan
 RWEBGPUDIR=$(RGAPIDIR)/graphics_api/WebGPU
+RVULKANSCDIR=$(RGAPIDIR)/graphics_api/VulkanSC
 
 # The Dawn install that scripts/build_dawn.sh makes. DAWN_LIB is the shared
 # library that the game loads, and DAWN_RUNTIME has the files that the build
@@ -1118,6 +1123,9 @@ ifneq ($(BUILD_CLIENT),0)
     ifneq ($(BUILD_RENDERER_WEBGPU),0)
       TARGETS += $(B)/renderer_webgpu_$(SHLIBNAME)
     endif
+    ifneq ($(BUILD_RENDERER_VULKANSC),0)
+      TARGETS += $(B)/renderer_vulkansc_$(SHLIBNAME)
+    endif
   else
   ifeq ($(PLATFORM),emscripten)
     # A browser has WebGPU, but not Vulkan or desktop OpenGL.
@@ -1383,6 +1391,17 @@ $(echo_cmd) "REF_CC $<"
 $(Q)$(CC) $(SHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(WEBGPU_CFLAGS) $(OPTIMIZE) -o $@ -c $<
 endef
 
+# The Vulkan SC headers (VulkanSC-Headers/include), from VULKANSC_SDK if it is set.
+ifdef VULKANSC_SDK
+  VULKANSC_INCLUDE ?= $(VULKANSC_SDK)/include
+endif
+VULKANSC_CFLAGS = $(GAPI_CFLAGS) -I$(RVULKANSCDIR) -I$(RVULKANSCDIR)/include -I$(VULKANSC_INCLUDE)
+
+define DO_VULKANSC_CC
+$(echo_cmd) "REF_CC $<"
+$(Q)$(CC) $(SHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(VULKANSC_CFLAGS) $(OPTIMIZE) -o $@ -c $<
+endef
+
 define DO_VULKAN_CC
 $(echo_cmd) "REF_CC $<"
 $(Q)$(CC) $(SHLIBCFLAGS) $(CFLAGS) $(CLIENT_CFLAGS) $(VULKAN_CFLAGS) $(OPTIMIZE) -o $@ -c $<
@@ -1603,6 +1622,7 @@ makedirs:
 	@$(MKDIR) $(B)/renderer_gapi
 	@$(MKDIR) $(B)/renderer_gapi/Vulkan
 	@$(MKDIR) $(B)/renderer_gapi/WebGPU
+	@$(MKDIR) $(B)/renderer_gapi/VulkanSC
 	@$(MKDIR) $(B)/ded
 	@$(MKDIR) $(B)/$(BASEGAME)/cgame
 	@$(MKDIR) $(B)/$(BASEGAME)/game
@@ -2039,6 +2059,29 @@ Q3VKOBJ = $(Q3GAPIOBJ) \
   $(B)/renderer_gapi/Vulkan/single_texture_vert.o \
   $(B)/renderer_gapi/Vulkan/vk_surface_sdl.o
 
+# The Vulkan SC renderer: the shared code and graphics_api/VulkanSC
+Q3VKSCOBJ = $(Q3GAPIOBJ) \
+  $(B)/renderer_gapi/VulkanSC/vk_instance.o \
+  $(B)/renderer_gapi/VulkanSC/vk_init.o \
+  $(B)/renderer_gapi/VulkanSC/vk_cmd.o \
+  $(B)/renderer_gapi/VulkanSC/vk_texture.o \
+  $(B)/renderer_gapi/VulkanSC/vk_image_sampler2.o \
+  $(B)/renderer_gapi/VulkanSC/vk_pipeline.o \
+  $(B)/renderer_gapi/VulkanSC/vk_frame.o \
+  $(B)/renderer_gapi/VulkanSC/vk_swapchain.o \
+  $(B)/renderer_gapi/VulkanSC/vk_screenshot.o \
+  $(B)/renderer_gapi/VulkanSC/vk_info.o \
+  $(B)/renderer_gapi/VulkanSC/vk_geometry.o \
+  $(B)/renderer_gapi/VulkanSC/vk_depth_attachment.o \
+  $(B)/renderer_gapi/VulkanSC/vk_shaders.o \
+  $(B)/renderer_gapi/VulkanSC/multi_texture_clipping_plane_vert.o \
+  $(B)/renderer_gapi/VulkanSC/multi_texture_frag.o \
+  $(B)/renderer_gapi/VulkanSC/multi_texture_vert.o \
+  $(B)/renderer_gapi/VulkanSC/single_texture_clipping_plane_vert.o \
+  $(B)/renderer_gapi/VulkanSC/single_texture_frag.o \
+  $(B)/renderer_gapi/VulkanSC/single_texture_vert.o \
+  $(B)/renderer_gapi/VulkanSC/vk_surface_sdl.o
+
 # The WebGPU renderer: the shared code and graphics_api/WebGPU
 Q3WGPUOBJ = $(Q3GAPIOBJ) \
   $(B)/renderer_gapi/WebGPU/wgpu_init.o \
@@ -2188,6 +2231,11 @@ ifneq ($(USE_RENDERER_DLOPEN), 0)
 	$(B)/renderergl1/q_math.o
 
   Q3WGPUOBJ += \
+	$(B)/renderergl1/q_shared.o \
+	$(B)/renderergl1/puff.o \
+	$(B)/renderergl1/q_math.o
+
+  Q3VKSCOBJ += \
 	$(B)/renderergl1/q_shared.o \
 	$(B)/renderergl1/puff.o \
 	$(B)/renderergl1/q_math.o
@@ -2511,6 +2559,14 @@ $(B)/renderer_opengl2_$(SHLIBNAME): $(Q3R2OBJ) $(Q3R2STRINGOBJ) $(JPGOBJ)
 $(B)/renderer_vulkan_$(SHLIBNAME): $(Q3VKOBJ) $(JPGOBJ)
 	$(echo_cmd) "LD $@"
 	$(Q)$(CC) $(CFLAGS) $(SHLIBLDFLAGS) -o $@ $(Q3VKOBJ) $(JPGOBJ) \
+		$(THREAD_LIBS) $(RENDERER_LIBS) $(LIBSDLMAIN) $(LIBS)
+
+######################## VULKAN SC ###########################
+
+$(B)/renderer_vulkansc_$(SHLIBNAME): $(Q3VKSCOBJ) $(JPGOBJ)
+	$(if $(VULKANSC_INCLUDE),,$(error Set VULKANSC_INCLUDE to the Vulkan SC headers, or VULKANSC_SDK))
+	$(echo_cmd) "LD $@"
+	$(Q)$(CC) $(CFLAGS) $(SHLIBLDFLAGS) -o $@ $(Q3VKSCOBJ) $(JPGOBJ) \
 		$(THREAD_LIBS) $(RENDERER_LIBS) $(LIBSDLMAIN) $(LIBS)
 
 ######################## WEBGPU ##############################
@@ -3094,6 +3150,12 @@ $(B)/renderer_gapi/Vulkan/%.o: $(RVULKANDIR)/%.c
 $(B)/renderer_gapi/Vulkan/%.o: $(RVULKANDIR)/shaders/%.c
 	$(DO_VULKAN_CC)
 
+$(B)/renderer_gapi/VulkanSC/%.o: $(RVULKANSCDIR)/%.c
+	$(DO_VULKANSC_CC)
+
+$(B)/renderer_gapi/VulkanSC/%.o: $(RVULKANSCDIR)/shaders/%.c
+	$(DO_VULKANSC_CC)
+
 $(B)/renderer_gapi/WebGPU/%.o: $(RWEBGPUDIR)/%.c
 	$(DO_WEBGPU_CC)
 
@@ -3226,7 +3288,7 @@ $(B)/$(MISSIONPACK)/qcommon/%.asm: $(CMDIR)/%.c $(Q3LCC)
 # MISC
 #############################################################################
 
-OBJ = $(Q3OBJ) $(Q3ROBJ) $(Q3R2OBJ) $(Q3VKOBJ) $(Q3WGPUOBJ) $(Q3DOBJ) $(JPGOBJ) \
+OBJ = $(Q3OBJ) $(Q3ROBJ) $(Q3R2OBJ) $(Q3VKOBJ) $(Q3VKSCOBJ) $(Q3WGPUOBJ) $(Q3DOBJ) $(JPGOBJ) \
   $(MPGOBJ) $(Q3GOBJ) $(Q3CGOBJ) $(MPCGOBJ) $(Q3UIOBJ) $(MPUIOBJ) \
   $(MPGVMOBJ) $(Q3GVMOBJ) $(Q3CGVMOBJ) $(MPCGVMOBJ) $(Q3UIVMOBJ) $(MPUIVMOBJ)
 TOOLSOBJ = $(LBURGOBJ) $(Q3CPPOBJ) $(Q3RCCOBJ) $(Q3LCCOBJ) $(Q3ASMOBJ)
@@ -3304,6 +3366,7 @@ clean2:
 	@rm -f $(TARGETS)
 	@rm -f $(Q3VKOBJ)
 	@rm -f $(Q3WGPUOBJ)
+	@rm -f $(Q3VKSCOBJ)
 	
 toolsclean: toolsclean-debug toolsclean-release
 
