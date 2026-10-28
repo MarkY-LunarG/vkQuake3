@@ -534,7 +534,8 @@ void gapi_uploadTexture(gapi_texture_t* tex, const unsigned char* rgba, uint32_t
     }
 
     void* data;
-    VK_CHECK(qvkMapMemory(vk.device, StagBuf.mappableMem, 0, VK_WHOLE_SIZE, 0, &data));
+    // Map only the bytes of this upload: a capture tool then records only them
+    VK_CHECK(qvkMapMemory(vk.device, StagBuf.mappableMem, 0, buffer_size, 0, &data));
     memcpy(data, rgba, buffer_size);
     qvkUnmapMemory(vk.device, StagBuf.mappableMem);
 
