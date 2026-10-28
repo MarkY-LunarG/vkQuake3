@@ -532,7 +532,9 @@ static void vk_getObjectReservation(VkDeviceObjectReservationCreateInfo* r)
     r->semaphoreRequestCount = 2 * MAX_SWAPCHAIN_IMAGES;
     r->commandBufferRequestCount = 8;
     r->fenceRequestCount = 8;
-    r->deviceMemoryRequestCount = 64;
+    // The image chunks, the staging, vertex, index, and screenshot buffers,
+    // and the depth image: 7 allocations, all at startup
+    r->deviceMemoryRequestCount = 16;
     r->bufferRequestCount = 16;
     r->imageRequestCount = MAX_DRAWIMAGES + 16;
     r->imageViewRequestCount = MAX_DRAWIMAGES + MAX_SWAPCHAIN_IMAGES + 16;
@@ -802,6 +804,42 @@ static void vk_loadDeviceFunctions(void)
 
 
 
+// Vulkan SC has no vkFreeMemory, so the renderer allocates all device memory
+// at startup. The allocations go through this counter, which reports an
+// allocation after startup (vk_markStartupComplete).
+static PFN_vkAllocateMemory s_allocateMemory = NULL;
+static uint32_t s_numAllocations = 0;
+static uint32_t s_numAllocationsAfterStartup = 0;
+static qboolean s_startupComplete = qfalse;
+
+static VKAPI_ATTR VkResult VKAPI_CALL vk_countedAllocateMemory(VkDevice device,
+        const VkMemoryAllocateInfo* pAllocateInfo, const VkAllocationCallbacks* pAllocator, VkDeviceMemory* pMemory)
+{
+    s_numAllocations++;
+    if (s_startupComplete)
+    {
+        s_numAllocationsAfterStartup++;
+        ri.Printf(PRINT_WARNING, "Vulkan SC: device memory allocated after startup (%u bytes)\n",
+            (uint32_t)pAllocateInfo->allocationSize);
+    }
+    return s_allocateMemory(device, pAllocateInfo, pAllocator, pMemory);
+}
+
+
+void vk_markStartupComplete(void)
+{
+    s_startupComplete = qtrue;
+    ri.Printf(PRINT_ALL, " Vulkan SC: %u device memory allocations at startup\n", s_numAllocations);
+}
+
+
+void vk_reportMemoryAllocations(void)
+{
+    ri.Printf(PRINT_ALL, "Vulkan SC: %u device memory allocations, %u after startup\n",
+        s_numAllocations, s_numAllocationsAfterStartup);
+}
+
+
 qboolean vk_getProcAddress(void)
 {
     if (!vk_loadGlobalFunctions())
@@ -828,6 +866,11 @@ qboolean vk_getProcAddress(void)
 
     // Get device level functions.
     vk_loadDeviceFunctions();
+    s_allocateMemory = qvkAllocateMemory;
+    qvkAllocateMemory = vk_countedAllocateMemory;
+    s_numAllocations = 0;
+    s_numAllocationsAfterStartup = 0;
+    s_startupComplete = qfalse;
 
     // a call to retrieve queue handle
 	qvkGetDeviceQueue(vk.device, vk.queue_family_index, 0, &vk.queue);

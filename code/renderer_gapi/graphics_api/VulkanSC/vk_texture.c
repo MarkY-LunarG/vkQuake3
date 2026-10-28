@@ -13,7 +13,16 @@
 
 
 
+// Vulkan SC has no vkFreeMemory. Thus all texture memory is allocated at
+// startup: IMAGE_CHUNK_COUNT chunks of device local memory, which the images
+// share, and one staging buffer. When the last texture is destroyed (a map
+// change), the chunks are used again from the start.
 #define IMAGE_CHUNK_SIZE        (64 * 1024 * 1024)
+// The most image memory of a baseq3 map is 52 MB, on q3dm15 with r_picmip 0
+// (20 MB with the default r_picmip 1). Two chunks give more than twice that.
+#define IMAGE_CHUNK_COUNT       2
+// The largest upload: a 2048x2048 texture with its mip levels is 22 MB.
+#define STAGING_BUFFER_SIZE     (32 * 1024 * 1024)
 
 
 
@@ -42,8 +51,8 @@ struct ImageChunk_t {
 
 struct deviceLocalMemory_t {
     // One large device device local memory allocation, assigned to multiple images
-	struct ImageChunk_t Chunks[8];
-	uint32_t Index; // number of chunks used
+	struct ImageChunk_t Chunks[IMAGE_CHUNK_COUNT];
+	uint32_t Index; // number of chunks allocated
 };
 
 static struct StagingBuffer_t StagBuf;
@@ -52,17 +61,27 @@ static uint32_t s_stagingSize = 0;
 // The number of textures that exist. When it is 0, the memory is free.
 static uint32_t s_numTextures = 0;
 static struct deviceLocalMemory_t devMemImg;
+// The most bytes of the image chunks in use at one time
+static VkDeviceSize s_peakImageBytes = 0;
 
-void gapi_printMemoryInfo(void)
+static VkDeviceSize vk_imageBytesUsed(void)
 {
-    // The first line has the same format as in the WebGPU backend.
-    ri.Printf(PRINT_ALL, "Number of textures: %d\n", s_numTextures);
-    ri.Printf(PRINT_ALL, "Device local memory of the image chunks: %d MB\n",
-           devMemImg.Index * (IMAGE_CHUNK_SIZE>>20) );
+    VkDeviceSize used = 0;
+    uint32_t i;
+    for (i = 0; i < devMemImg.Index; i++)
+        used += devMemImg.Chunks[i].Used;
+    return used;
 }
 
 
-////////////////////////////////////////
+void gapi_printMemoryInfo(void)
+{
+    ri.Printf(PRINT_ALL, "Number of textures: %d\n", s_numTextures);
+    ri.Printf(PRINT_ALL, "Image chunks: %u MB in use, peak %u MB, of %d MB\n",
+           (uint32_t)(vk_imageBytesUsed() >> 20), (uint32_t)(s_peakImageBytes >> 20),
+           devMemImg.Index * (IMAGE_CHUNK_SIZE>>20) );
+}
+
 
 uint32_t find_memory_type(uint32_t memory_type_bits, VkMemoryPropertyFlags properties)
 {
@@ -303,6 +322,9 @@ static void vk_createImageAndBindWithMemory(gapi_texture_t* pImg)
                         devMemImg.Chunks[i].block, offset_aligned));
 
 			devMemImg.Chunks[i].Used = end;
+			const VkDeviceSize used = vk_imageBytesUsed();
+			if (used > s_peakImageBytes)
+				s_peakImageBytes = used;
 			return;
 		}
 	}
@@ -310,32 +332,9 @@ static void vk_createImageAndBindWithMemory(gapi_texture_t* pImg)
 	// Couldn't find suitable in existing chunk.
     // Allocate a new chunk
     
-    VkMemoryAllocateInfo alloc_info;
-    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-    alloc_info.pNext = NULL;
-    alloc_info.allocationSize = IMAGE_CHUNK_SIZE;
-    alloc_info.memoryTypeIndex = find_memory_type(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-
-    VkDeviceMemory memory;
-    VK_CHECK(qvkAllocateMemory(vk.device, &alloc_info, NULL, &memory));
-    VK_CHECK(qvkBindImageMemory(vk.device, pImg->handle, memory, 0));
-
-    devMemImg.Chunks[devMemImg.Index].block = memory;
-    devMemImg.Chunks[devMemImg.Index].Used = memory_requirements.size;
-    ++devMemImg.Index;
-
-
-    ri.Printf(PRINT_ALL, " --- Device memory allocation --- \n");
-
-    ri.Printf(PRINT_ALL, "alignment: %ld, Type Index: %d. \n",
-            memory_requirements.alignment, alloc_info.memoryTypeIndex);
-    
-    ri.Printf(PRINT_ALL, "Image chuck memory consumed: %d M \n",
-            devMemImg.Index * (IMAGE_CHUNK_SIZE >> 20) );
-
-    ri.Printf(PRINT_ALL, " --- ------------------------ --- \n");
+    ri.Error(ERR_DROP, "Vulkan SC: the %d MB of image chunks are full (a %ux%u image needs %u bytes)\n",
+        IMAGE_CHUNK_COUNT * (IMAGE_CHUNK_SIZE >> 20), pImg->width, pImg->height, (uint32_t)memory_requirements.size);
 }
-
 
 
 static void vk_createImageViewAndDescriptorSet(gapi_texture_t* pImage)
@@ -530,11 +529,8 @@ void gapi_uploadTexture(gapi_texture_t* tex, const unsigned char* rgba, uint32_t
     // Make the staging buffer larger if the upload does not fit.
     if (buffer_size > s_stagingSize)
     {
-        uint32_t new_size = (s_stagingSize == 0) ? (8 * 1024 * 1024) : s_stagingSize;
-        while (new_size < buffer_size)
-            new_size *= 2;
-        vk_destroy_staging_buffer();
-        vk_createStagingBuffer(new_size);
+        ri.Error(ERR_DROP, "Vulkan SC: a %ux%u texture needs %u bytes of staging; the staging buffer has %u\n",
+            tex->width, tex->height, buffer_size, s_stagingSize);
     }
 
     void* data;
@@ -568,23 +564,76 @@ void gapi_destroyTexture(gapi_texture_t* tex)
     if (--s_numTextures > 0)
         return;
 
-    // The last texture is destroyed: free the memory of all textures.
+    // The last texture is destroyed. Keep the chunks and the staging buffer,
+    // and use the chunks again from the start.
     uint32_t i;
 
 	vk_free_sampler();
 
+    ri.Printf(PRINT_ALL, "Vulkan SC image chunks: peak %u MB of %d MB\n",
+        (uint32_t)(s_peakImageBytes >> 20), devMemImg.Index * (IMAGE_CHUNK_SIZE >> 20));
     for (i = 0; i < devMemImg.Index; i++)
     {
         devMemImg.Chunks[i].Used = 0;
     }
-
-    devMemImg.Index = 0;
-
-
-    vk_destroy_staging_buffer();
     // Destroying a pool object implicitly frees all objects allocated from that pool. 
     // Specifically, destroying VkCommandPool frees all VkCommandBuffer objects that 
     // were allocated from it, and destroying VkDescriptorPool frees all 
     // VkDescriptorSet objects that were allocated from it.
     VK_CHECK(qvkResetDescriptorPool(vk.device, vk.descriptor_pool, 0));
+}
+
+
+
+void vk_createTextureMemory(void)
+{
+    uint32_t i;
+    vk_createStagingBuffer(STAGING_BUFFER_SIZE);
+
+    // The memory type of the images: from the requirements of an image like them
+    VkImageCreateInfo desc;
+    memset(&desc, 0, sizeof(desc));
+    desc.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    desc.imageType = VK_IMAGE_TYPE_2D;
+    desc.format = VK_FORMAT_R8G8B8A8_UNORM;
+    desc.extent.width = 256;
+    desc.extent.height = 256;
+    desc.extent.depth = 1;
+    desc.mipLevels = 1;
+    desc.arrayLayers = 1;
+    desc.samples = VK_SAMPLE_COUNT_1_BIT;
+    desc.tiling = VK_IMAGE_TILING_OPTIMAL;
+    desc.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    desc.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkImage image;
+    VK_CHECK(qvkCreateImage(vk.device, &desc, NULL, &image));
+    VkMemoryRequirements memory_requirements;
+    qvkGetImageMemoryRequirements(vk.device, image, &memory_requirements);
+    qvkDestroyImage(vk.device, image, NULL);
+
+    VkMemoryAllocateInfo alloc_info;
+    alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    alloc_info.pNext = NULL;
+    alloc_info.allocationSize = IMAGE_CHUNK_SIZE;
+    alloc_info.memoryTypeIndex = find_memory_type(memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+    for (i = 0; i < IMAGE_CHUNK_COUNT; i++)
+    {
+        VK_CHECK(qvkAllocateMemory(vk.device, &alloc_info, NULL, &devMemImg.Chunks[i].block));
+        devMemImg.Chunks[i].Used = 0;
+    }
+    devMemImg.Index = IMAGE_CHUNK_COUNT;
+    s_peakImageBytes = 0;
+    ri.Printf(PRINT_ALL, " Vulkan SC: %d image chunks of %d MB, memory type %u\n",
+        IMAGE_CHUNK_COUNT, IMAGE_CHUNK_SIZE >> 20, alloc_info.memoryTypeIndex);
+}
+
+
+void vk_destroyTextureMemory(void)
+{
+    ri.Printf(PRINT_ALL, "Vulkan SC image chunks: peak %u MB of %d MB\n",
+        (uint32_t)(s_peakImageBytes >> 20), devMemImg.Index * (IMAGE_CHUNK_SIZE >> 20));
+    vk_destroy_staging_buffer();
+    // Vulkan SC has no vkFreeMemory: the chunks stay until the device is destroyed
+    memset(&devMemImg, 0, sizeof(devMemImg));
 }

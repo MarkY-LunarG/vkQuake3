@@ -200,4 +200,9 @@ extern struct Vk_Instance vk;
 
 
 
+// Vulkan SC: device memory is allocated at startup only. Mark the end of
+// startup, and report the allocations at shutdown.
+void vk_markStartupComplete(void);
+void vk_reportMemoryAllocations(void);
+
 #endif

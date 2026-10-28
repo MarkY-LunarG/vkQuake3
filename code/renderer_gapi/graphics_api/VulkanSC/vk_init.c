@@ -7,6 +7,7 @@
 #include "vk_pipeline.h"
 #include "vk_geometry.h"
 #include "vk_shaders.h"
+#include "vk_texture.h"
 #include "vk_pipeline_export.h"
 #include "graphics_api/gapi.h"
 #include "glConfig.h"
@@ -65,6 +66,10 @@ qboolean gapi_init(struct SDL_Window* window)
     // Vulkan SC: every pipeline of the pipeline cache, before the first frame
     vk_createCachePipelines();
 
+    // Vulkan SC: all device memory, before the first frame
+    vk_createTextureMemory();
+    vk_createScreenshotBuffer(vk.swapchain_extent.width, vk.swapchain_extent.height);
+
 	//
 	vk_createVertexBuffer();
     vk_createIndexBuffer();;
@@ -73,6 +78,7 @@ qboolean gapi_init(struct SDL_Window* window)
 	// Standard pipelines.
 	//
 
+    vk_markStartupComplete();
     vk.isInitialized = VK_TRUE;
 
     return qtrue;
@@ -104,6 +110,9 @@ void gapi_shutdown(void)
             ri.Printf(PRINT_WARNING, "Vulkan SC: could not write the pipeline JSON\n");
     }
 
+    vk_reportMemoryAllocations();
+    vk_destroyScreenshotBuffer();
+    vk_destroyTextureMemory();
     vk_destroyDepthAttachment();
 
     vk_destroyFrameBuffers();

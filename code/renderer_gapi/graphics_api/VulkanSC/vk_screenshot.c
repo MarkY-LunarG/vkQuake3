@@ -21,43 +21,59 @@ Implementations may support additional limits and capabilities beyond those list
 */
 
 
+// Vulkan SC has no vkFreeMemory: the buffer that a screenshot reads into is
+// made at startup, with the size of the swapchain images.
+static VkBuffer s_readBuffer = VK_NULL_HANDLE;
+static VkDeviceMemory s_readMemory = VK_NULL_HANDLE;
+static uint32_t s_readBufferSize = 0;
+
+
+void vk_createScreenshotBuffer(uint32_t W, uint32_t H)
+{
+    s_readBufferSize = W * H * 4;
+
+    VkBufferCreateInfo buffer_create_info;
+    memset(&buffer_create_info, 0, sizeof(buffer_create_info));
+    buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_create_info.size = s_readBufferSize;
+    buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    VK_CHECK( qvkCreateBuffer(vk.device, &buffer_create_info, NULL, &s_readBuffer) );
+
+    VkMemoryRequirements memory_requirements;
+    qvkGetBufferMemoryRequirements(vk.device, s_readBuffer, &memory_requirements);
+
+    VkMemoryAllocateInfo memory_allocate_info;
+    memset(&memory_allocate_info, 0, sizeof(memory_allocate_info));
+    memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    memory_allocate_info.allocationSize = memory_requirements.size;
+    memory_allocate_info.memoryTypeIndex = find_memory_type(memory_requirements.memoryTypeBits,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+    VK_CHECK( qvkAllocateMemory(vk.device, &memory_allocate_info, NULL, &s_readMemory) );
+    VK_CHECK( qvkBindBufferMemory(vk.device, s_readBuffer, s_readMemory, 0) );
+}
+
+
+void vk_destroyScreenshotBuffer(void)
+{
+    if (s_readBuffer != VK_NULL_HANDLE)
+        qvkDestroyBuffer(vk.device, s_readBuffer, NULL);
+    s_readBuffer = VK_NULL_HANDLE;
+    s_readMemory = VK_NULL_HANDLE;
+    s_readBufferSize = 0;
+}
+
+
 static void vk_read_pixels(unsigned char* pBuf, uint32_t W, uint32_t H)
 {
-
 	qvkDeviceWaitIdle(vk.device);
 
-	// Create image in host visible memory to serve as a destination for framebuffer pixels.
-  
     const uint32_t sizeFB = W * H * 4;
-    
-
-	VkBuffer buffer;
-    VkDeviceMemory memory;
+    if (sizeFB > s_readBufferSize)
     {
-        VkBufferCreateInfo buffer_create_info;
-        memset(&buffer_create_info, 0, sizeof(buffer_create_info));
-        buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-        buffer_create_info.size = sizeFB;
-        buffer_create_info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
-        VK_CHECK( qvkCreateBuffer(vk.device, &buffer_create_info, NULL, &buffer) );
-
-        VkMemoryRequirements memory_requirements;
-        qvkGetBufferMemoryRequirements(vk.device, buffer, &memory_requirements);
-
-        VkMemoryAllocateInfo memory_allocate_info;
-        memset(&memory_allocate_info, 0, sizeof(memory_allocate_info));
-        memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        memory_allocate_info.allocationSize = memory_requirements.size;
-        //
-        memory_allocate_info.memoryTypeIndex = find_memory_type(memory_requirements.memoryTypeBits,
-                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-
-        VK_CHECK( qvkAllocateMemory(vk.device, &memory_allocate_info, NULL, &memory) );
-        VK_CHECK( qvkBindBufferMemory(vk.device, buffer, memory, 0) );
+        ri.Error(ERR_DROP, "Vulkan SC: a %ux%u screenshot is larger than the screenshot buffer\n", W, H);
     }
-
-
-    //////////////////////////////////////////////////////////
+    VkBuffer buffer = s_readBuffer;
+    VkDeviceMemory memory = s_readMemory;
 
     VkBufferImageCopy2KHR image_copy;
     {
@@ -164,7 +180,6 @@ static void vk_read_pixels(unsigned char* pBuf, uint32_t W, uint32_t H)
     VK_CHECK(qvkMapMemory(vk.device, memory, 0, VK_WHOLE_SIZE, 0, (void**)&data));
     memcpy(pBuf, data, sizeFB);
     qvkUnmapMemory(vk.device, memory);
-    qvkDestroyBuffer(vk.device, buffer, NULL);
 }
 
 
