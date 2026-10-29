@@ -8,6 +8,7 @@
 #include "vk_geometry.h"
 #include "vk_shaders.h"
 #include "vk_texture.h"
+#include "vk_coverage.h"
 #include "vk_pipeline_export.h"
 #include "graphics_api/gapi.h"
 #include "glConfig.h"
@@ -20,6 +21,7 @@ qboolean gapi_init(struct SDL_Window* window)
 {
     // This function is responsible for initializing a valid Vulkan subsystem.
     vk_setWindowImpl(window);
+    vk_coverageReadCvar();
 
     // The instance, the surface, and the device depend on the window system.
     // If they fail, the caller can try a different SDL video driver.
@@ -69,6 +71,7 @@ qboolean gapi_init(struct SDL_Window* window)
     // Vulkan SC: all device memory, before the first frame
     vk_createTextureMemory();
     vk_createScreenshotBuffer(vk.swapchain_extent.width, vk.swapchain_extent.height);
+    vk_coverageCreate();
 
 	//
 	vk_createVertexBuffer();
@@ -111,6 +114,7 @@ void gapi_shutdown(void)
     }
 
     vk_reportMemoryAllocations();
+    vk_coverageDestroy();
     vk_destroyScreenshotBuffer();
     vk_destroyTextureMemory();
     vk_destroyDepthAttachment();

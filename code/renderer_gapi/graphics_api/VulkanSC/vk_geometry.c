@@ -1,6 +1,7 @@
 #include "vk_geometry.h"
 #include "vk_frame.h"
 #include "vk_instance.h"
+#include "vk_coverage.h"
 #include "vk_texture.h"
 #include "tr_cvar.h"
 
@@ -168,7 +169,7 @@ void vk_createVertexBuffer(void)
 
     VK_CHECK(qvkAllocateMemory(vk.device, &alloc_info, NULL, &shadingDat.vertex_buffer_memory));
 
-    qvkBindBufferMemory(vk.device, shadingDat.vertex_buffer, shadingDat.vertex_buffer_memory, 0);
+    vk_bindBufferMemory(shadingDat.vertex_buffer, shadingDat.vertex_buffer_memory, 0);
 
     void* data;
     VK_CHECK(qvkMapMemory(vk.device, shadingDat.vertex_buffer_memory, 0, VK_WHOLE_SIZE, 0, &data));
@@ -219,7 +220,7 @@ void vk_createIndexBuffer(void)
             alloc_info.allocationSize);
 
     VK_CHECK(qvkAllocateMemory(vk.device, &alloc_info, NULL, &shadingDat.index_buffer_memory));
-    qvkBindBufferMemory(vk.device, shadingDat.index_buffer, shadingDat.index_buffer_memory, 0);
+    vk_bindBufferMemory(shadingDat.index_buffer, shadingDat.index_buffer_memory, 0);
 
     void* data;
     VK_CHECK(qvkMapMemory(vk.device, shadingDat.index_buffer_memory, 0, VK_WHOLE_SIZE, 0, &data));
@@ -298,7 +299,7 @@ void gapi_draw(const gapi_pipeline_t* pipeline, const gapi_draw_t* draw)
 		memcpy(dst, draw->texCoords1, draw->numVertexes * sizeof(vec2_t));
 	}
 
-	qvkCmdBindVertexBuffers(vk.command_buffer, 1, multitexture ? 3 : 2, bufs, offs);
+	qvkCmdBindVertexBuffers2EXT(vk.command_buffer, 1, multitexture ? 3 : 2, bufs, offs, NULL, NULL);
 	shadingDat.color_st_elements += draw->numVertexes;
 
 	// bind descriptor sets
@@ -323,8 +324,27 @@ void gapi_draw(const gapi_pipeline_t* pipeline, const gapi_draw_t* draw)
 
     vk_setViewportScissor(&draw->viewport, draw->depthRange, &viewport, &scissor);
 
-    qvkCmdSetScissor(vk.command_buffer, 0, 1, &scissor);
-    qvkCmdSetViewport(vk.command_buffer, 0, 1, &viewport);
+    qvkCmdSetScissorWithCountEXT(vk.command_buffer, 1, &scissor);
+    qvkCmdSetViewportWithCountEXT(vk.command_buffer, 1, &viewport);
+
+    // The dynamic state of the pipeline (vk_pipeline.c)
+    const VkStencilFaceFlags stencil_faces = VK_STENCIL_FACE_FRONT_AND_BACK;
+    static const float blend_constants[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    qvkCmdSetPrimitiveTopologyEXT(vk.command_buffer, pipeline->topology);
+    qvkCmdSetPrimitiveRestartEnableEXT(vk.command_buffer, VK_FALSE);
+    qvkCmdSetDepthTestEnableEXT(vk.command_buffer, pipeline->depthTest);
+    qvkCmdSetDepthWriteEnableEXT(vk.command_buffer, pipeline->depthWrite);
+    qvkCmdSetDepthCompareOpEXT(vk.command_buffer, pipeline->depthCompareOp);
+    qvkCmdSetDepthBoundsTestEnableEXT(vk.command_buffer, VK_FALSE);
+    qvkCmdSetDepthBounds(vk.command_buffer, 0.0f, 1.0f);
+    qvkCmdSetStencilTestEnableEXT(vk.command_buffer, pipeline->stencilTest);
+    qvkCmdSetStencilOpEXT(vk.command_buffer, stencil_faces, pipeline->stencilFailOp, pipeline->stencilPassOp,
+        pipeline->stencilDepthFailOp, pipeline->stencilCompareOp);
+    qvkCmdSetStencilCompareMask(vk.command_buffer, stencil_faces, 255);
+    qvkCmdSetStencilWriteMask(vk.command_buffer, stencil_faces, 255);
+    qvkCmdSetStencilReference(vk.command_buffer, stencil_faces, 0);
+    qvkCmdSetBlendConstants(vk.command_buffer, blend_constants);
+    qvkCmdSetDepthBiasEnableEXT(vk.command_buffer, pipeline->polygonOffset ? VK_TRUE : VK_FALSE);
 
 
 	if (pipeline->polygonOffset) {
@@ -409,7 +429,7 @@ void gapi_uploadPositionsAndIndexes(const vec4_t* pXYZ, uint32_t nVertex,
         // 4 float in the array, with each 4 bytes.
 		memcpy(vDst, pXYZ, nVertex * 16);
 
-		qvkCmdBindVertexBuffers(vk.command_buffer, 0, 1, &shadingDat.vertex_buffer, &xyz_offset);
+		qvkCmdBindVertexBuffers2EXT(vk.command_buffer, 0, 1, &shadingDat.vertex_buffer, &xyz_offset, NULL, NULL);
 		
         shadingDat.xyz_elements += nVertex;
 

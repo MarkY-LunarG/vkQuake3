@@ -31,6 +31,15 @@ struct gapi_pipeline_s {
 	// Dynamic state (VK_EXT_extended_dynamic_state), set by gapi_draw
 	VkCullModeFlags cullMode;
 	VkFrontFace frontFace;
+	VkPrimitiveTopology topology;
+	VkBool32 depthTest;
+	VkBool32 depthWrite;
+	VkCompareOp depthCompareOp;
+	VkBool32 stencilTest;
+	VkStencilOp stencilFailOp;
+	VkStencilOp stencilPassOp;
+	VkStencilOp stencilDepthFailOp;
+	VkCompareOp stencilCompareOp;
 };
 
 #endif

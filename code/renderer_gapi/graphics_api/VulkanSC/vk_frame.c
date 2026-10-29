@@ -4,6 +4,7 @@
 #include "vk_geometry.h"
 #include "vk_frame.h"
 #include "vk_cmd.h"
+#include "vk_coverage.h"
 #include "vk_pipeline_export.h"
 #include "vk_swapchain.h"
 #include "glConfig.h"
@@ -489,7 +490,13 @@ void gapi_beginFrame(void)
 	wait_info.semaphoreCount = 1;
 	wait_info.pSemaphores = &sema_frameTimeline;
 	wait_info.pValues = &s_frameTimelineValue;
-	VK_CHECK(qvkWaitSemaphores(vk.device, &wait_info, 1000000000ull));
+	// r_apiCoverage heavy: wait only when the GPU has not finished the frame
+	uint64_t finished_value = 0;
+	if (vk_coverageFeature("upload"))
+		VK_CHECK(qvkGetSemaphoreCounterValue(vk.device, sema_frameTimeline, &finished_value));
+	if (!vk_coverageFeature("upload") || finished_value < s_frameTimelineValue)
+		VK_CHECK(qvkWaitSemaphores(vk.device, &wait_info, 1000000000ull));
+	vk_coverageBeginFrame();
 
     // The draws record no commands until a frame starts.
     s_frameActive = qfalse;
@@ -615,6 +622,7 @@ void gapi_beginFrame(void)
     renderPass_beginInfo.clearValueCount = 2;
 	renderPass_beginInfo.pClearValues = clear_values;
 
+	vk_coverageBeginCommands(vk.command_buffer);
 	qvkCmdBeginRenderPass2(vk.command_buffer, &renderPass_beginInfo, &subpass_beginInfo);
 
     s_frameActive = qtrue;
@@ -631,6 +639,7 @@ void gapi_endFrame(void)
 	subpass_endInfo.sType = VK_STRUCTURE_TYPE_SUBPASS_END_INFO;
 	subpass_endInfo.pNext = NULL;
 	qvkCmdEndRenderPass2(vk.command_buffer, &subpass_endInfo);
+	vk_coverageEndCommands(vk.command_buffer);
 	
     VK_CHECK(qvkEndCommandBuffer(vk.command_buffer));
 

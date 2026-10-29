@@ -3,6 +3,7 @@
 #include "vk_texture.h"
 #include "vk_cmd.h"
 #include "vk_instance.h"
+#include "vk_coverage.h"
 #include "vk_gapi_types.h"
 #include "ref_import.h"
 
@@ -150,7 +151,7 @@ static void vk_createStagingBuffer(uint32_t size)
 
         VK_CHECK(qvkAllocateMemory(vk.device, &alloc_info, NULL, &StagBuf.mappableMem));
 
-        VK_CHECK(qvkBindBufferMemory(vk.device, StagBuf.buff, StagBuf.mappableMem, 0));
+        vk_bindBufferMemory(StagBuf.buff, StagBuf.mappableMem, 0);
 
         ri.Printf(PRINT_ALL, " Stagging buffer alignment: %ld, memoryTypeBits: 0x%x, Type Index: %d. \n",
             memory_requirements.alignment, memory_requirements.memoryTypeBits, alloc_info.memoryTypeIndex);
@@ -269,7 +270,7 @@ static void vk_stagBufferToDeviceLocalMem(VkImage image, VkBufferImageCopy* pReg
     
     VK_CHECK(qvkEndCommandBuffer(cmd_buf));
 
-	vk_submit(cmd_buf, VK_NULL_HANDLE, 0, VK_NULL_HANDLE, VK_NULL_HANDLE, 0);
+	vk_submitUpload(cmd_buf);
     VK_CHECK(qvkQueueWaitIdle(vk.queue));
     
 	qvkFreeCommandBuffers(vk.device, vk.command_pool, 1, &cmd_buf);
@@ -318,8 +319,8 @@ static void vk_createImageAndBindWithMemory(gapi_texture_t* pImg)
         VkDeviceSize end = offset_aligned + memory_requirements.size;
 		if (end <= IMAGE_CHUNK_SIZE)
         {
-            VK_CHECK(qvkBindImageMemory(vk.device, pImg->handle, 
-                        devMemImg.Chunks[i].block, offset_aligned));
+            vk_bindImageMemory(pImg->handle, 
+                        devMemImg.Chunks[i].block, offset_aligned);
 
 			devMemImg.Chunks[i].Used = end;
 			const VkDeviceSize used = vk_imageBytesUsed();

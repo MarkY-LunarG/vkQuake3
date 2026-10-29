@@ -339,10 +339,12 @@ static void vk_create_pipeline(const gapi_pipelineDesc_t* def, VkPipeline* pPipe
 	viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
 	viewport_state.pNext = NULL;
 	viewport_state.flags = 0;
-	viewport_state.viewportCount = 1;
-	viewport_state.pViewports = NULL; // dynamic viewport state
-	viewport_state.scissorCount = 1;
-	viewport_state.pScissors = NULL; // dynamic scissor state
+	// The viewport and scissor counts are dynamic state too
+	// (vkCmdSetViewportWithCountEXT, vkCmdSetScissorWithCountEXT).
+	viewport_state.viewportCount = 0;
+	viewport_state.pViewports = NULL;
+	viewport_state.scissorCount = 0;
+	viewport_state.pScissors = NULL;
 
 	//
 	// Rasterization.
@@ -540,9 +542,33 @@ static void vk_create_pipeline(const gapi_pipelineDesc_t* def, VkPipeline* pPipe
 	dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
 	dynamic_state.pNext = NULL;
 	dynamic_state.flags = 0;
-	dynamic_state.dynamicStateCount = 5;
-	VkDynamicState dynamic_state_array[5] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR, VK_DYNAMIC_STATE_DEPTH_BIAS,
-		VK_DYNAMIC_STATE_CULL_MODE_EXT, VK_DYNAMIC_STATE_FRONT_FACE_EXT };
+	// Vulkan SC: the pipeline cache must have every pipeline, so the state
+	// that gapi_draw can set is dynamic. This is all the state of
+	// VK_EXT_extended_dynamic_state and of the extendedDynamicState2 feature,
+	// and the core dynamic state that the pipelines use. The values in the
+	// state structures above are not used.
+	VkDynamicState dynamic_state_array[] = {
+		VK_DYNAMIC_STATE_DEPTH_BIAS,
+		VK_DYNAMIC_STATE_BLEND_CONSTANTS,
+		VK_DYNAMIC_STATE_DEPTH_BOUNDS,
+		VK_DYNAMIC_STATE_STENCIL_COMPARE_MASK,
+		VK_DYNAMIC_STATE_STENCIL_WRITE_MASK,
+		VK_DYNAMIC_STATE_STENCIL_REFERENCE,
+		VK_DYNAMIC_STATE_CULL_MODE_EXT,
+		VK_DYNAMIC_STATE_FRONT_FACE_EXT,
+		VK_DYNAMIC_STATE_PRIMITIVE_TOPOLOGY_EXT,
+		VK_DYNAMIC_STATE_VIEWPORT_WITH_COUNT_EXT,
+		VK_DYNAMIC_STATE_SCISSOR_WITH_COUNT_EXT,
+		VK_DYNAMIC_STATE_DEPTH_TEST_ENABLE_EXT,
+		VK_DYNAMIC_STATE_DEPTH_WRITE_ENABLE_EXT,
+		VK_DYNAMIC_STATE_DEPTH_COMPARE_OP_EXT,
+		VK_DYNAMIC_STATE_DEPTH_BOUNDS_TEST_ENABLE_EXT,
+		VK_DYNAMIC_STATE_STENCIL_TEST_ENABLE_EXT,
+		VK_DYNAMIC_STATE_STENCIL_OP_EXT,
+		VK_DYNAMIC_STATE_DEPTH_BIAS_ENABLE_EXT,
+		VK_DYNAMIC_STATE_PRIMITIVE_RESTART_ENABLE_EXT
+	};
+	dynamic_state.dynamicStateCount = sizeof(dynamic_state_array) / sizeof(dynamic_state_array[0]);
 	dynamic_state.pDynamicStates = dynamic_state_array;
 
 
@@ -871,6 +897,30 @@ gapi_pipeline_t* gapi_createPipeline(const gapi_pipelineDesc_t* desc)
             break;
     }
     handle->frontFace = desc->mirror ? VK_FRONT_FACE_COUNTER_CLOCKWISE : VK_FRONT_FACE_CLOCKWISE;
+
+    // The depth, stencil, and primitive state of the description
+    handle->topology = desc->linePrimitives ? VK_PRIMITIVE_TOPOLOGY_LINE_LIST : VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    handle->depthTest = (desc->stateBits & GLS_DEPTHTEST_DISABLE) ? VK_FALSE : VK_TRUE;
+    handle->depthWrite = (desc->stateBits & GLS_DEPTHMASK_TRUE) ? VK_TRUE : VK_FALSE;
+    handle->depthCompareOp = (desc->stateBits & GLS_DEPTHFUNC_EQUAL) ? VK_COMPARE_OP_EQUAL : VK_COMPARE_OP_LESS_OR_EQUAL;
+    handle->stencilTest = (desc->shadowPhase != GAPI_SHADOW_DISABLED) ? VK_TRUE : VK_FALSE;
+    handle->stencilFailOp = VK_STENCIL_OP_KEEP;
+    handle->stencilDepthFailOp = VK_STENCIL_OP_KEEP;
+    if (desc->shadowPhase == GAPI_SHADOW_EDGES)
+    {
+        handle->stencilPassOp = (desc->cullType == GAPI_CULL_FRONT_SIDED) ? VK_STENCIL_OP_INCREMENT_AND_CLAMP : VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+        handle->stencilCompareOp = VK_COMPARE_OP_ALWAYS;
+    }
+    else if (desc->shadowPhase == GAPI_SHADOW_FULLSCREEN_QUAD)
+    {
+        handle->stencilPassOp = VK_STENCIL_OP_KEEP;
+        handle->stencilCompareOp = VK_COMPARE_OP_NOT_EQUAL;
+    }
+    else
+    {
+        handle->stencilPassOp = VK_STENCIL_OP_KEEP;
+        handle->stencilCompareOp = VK_COMPARE_OP_NEVER;
+    }
     return handle;
 }
 

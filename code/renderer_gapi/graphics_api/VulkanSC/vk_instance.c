@@ -66,7 +66,41 @@ PFN_vkWaitSemaphores	qvkWaitSemaphores;
 PFN_vkCmdSetCullModeEXT	qvkCmdSetCullModeEXT;
 PFN_vkCmdSetFrontFaceEXT	qvkCmdSetFrontFaceEXT;
 PFN_vkCmdBindPipeline						qvkCmdBindPipeline;
-PFN_vkCmdBindVertexBuffers						qvkCmdBindVertexBuffers;
+PFN_vkCreateQueryPool	qvkCreateQueryPool;
+PFN_vkResetQueryPool	qvkResetQueryPool;
+PFN_vkCmdWriteTimestamp2KHR	qvkCmdWriteTimestamp2KHR;
+PFN_vkCmdCopyQueryPoolResults	qvkCmdCopyQueryPoolResults;
+PFN_vkCmdUpdateBuffer	qvkCmdUpdateBuffer;
+PFN_vkGetSemaphoreCounterValue	qvkGetSemaphoreCounterValue;
+PFN_vkSignalSemaphore	qvkSignalSemaphore;
+PFN_vkCreateEvent	qvkCreateEvent;
+PFN_vkDestroyEvent	qvkDestroyEvent;
+PFN_vkSetEvent	qvkSetEvent;
+PFN_vkResetEvent	qvkResetEvent;
+PFN_vkGetEventStatus	qvkGetEventStatus;
+PFN_vkCmdSetEvent2KHR	qvkCmdSetEvent2KHR;
+PFN_vkCmdResetEvent2KHR	qvkCmdResetEvent2KHR;
+PFN_vkBindBufferMemory2	qvkBindBufferMemory2;
+PFN_vkBindImageMemory2	qvkBindImageMemory2;
+PFN_vkCmdBlitImage2KHR	qvkCmdBlitImage2KHR;
+PFN_vkCmdClearDepthStencilImage	qvkCmdClearDepthStencilImage;
+PFN_vkCmdSetPrimitiveTopologyEXT	qvkCmdSetPrimitiveTopologyEXT;
+PFN_vkCmdSetViewportWithCountEXT	qvkCmdSetViewportWithCountEXT;
+PFN_vkCmdSetScissorWithCountEXT	qvkCmdSetScissorWithCountEXT;
+PFN_vkCmdBindVertexBuffers2EXT	qvkCmdBindVertexBuffers2EXT;
+PFN_vkCmdSetDepthTestEnableEXT	qvkCmdSetDepthTestEnableEXT;
+PFN_vkCmdSetDepthWriteEnableEXT	qvkCmdSetDepthWriteEnableEXT;
+PFN_vkCmdSetDepthCompareOpEXT	qvkCmdSetDepthCompareOpEXT;
+PFN_vkCmdSetDepthBoundsTestEnableEXT	qvkCmdSetDepthBoundsTestEnableEXT;
+PFN_vkCmdSetStencilTestEnableEXT	qvkCmdSetStencilTestEnableEXT;
+PFN_vkCmdSetStencilOpEXT	qvkCmdSetStencilOpEXT;
+PFN_vkCmdSetDepthBiasEnableEXT	qvkCmdSetDepthBiasEnableEXT;
+PFN_vkCmdSetPrimitiveRestartEnableEXT	qvkCmdSetPrimitiveRestartEnableEXT;
+PFN_vkCmdSetStencilCompareMask	qvkCmdSetStencilCompareMask;
+PFN_vkCmdSetStencilWriteMask	qvkCmdSetStencilWriteMask;
+PFN_vkCmdSetStencilReference	qvkCmdSetStencilReference;
+PFN_vkCmdSetBlendConstants	qvkCmdSetBlendConstants;
+PFN_vkCmdSetDepthBounds	qvkCmdSetDepthBounds;
 PFN_vkCmdBlitImage								qvkCmdBlitImage;
 PFN_vkCmdClearAttachments						qvkCmdClearAttachments;
 PFN_vkCmdCopyImage								qvkCmdCopyImage;
@@ -74,8 +108,6 @@ PFN_vkCmdDraw									qvkCmdDraw;
 PFN_vkCmdDrawIndexed							qvkCmdDrawIndexed;
 PFN_vkCmdPushConstants							qvkCmdPushConstants;
 PFN_vkCmdSetDepthBias							qvkCmdSetDepthBias;
-PFN_vkCmdSetScissor								qvkCmdSetScissor;
-PFN_vkCmdSetViewport							qvkCmdSetViewport;
 PFN_vkCreateBuffer								qvkCreateBuffer;
 PFN_vkCreateCommandPool							qvkCreateCommandPool;
 PFN_vkCreateDescriptorPool						qvkCreateDescriptorPool;
@@ -554,6 +586,10 @@ static void vk_getObjectReservation(VkDeviceObjectReservationCreateInfo* r)
     r->attachmentDescriptionRequestCount = 8;
     r->descriptorSetLayoutBindingRequestCount = 4;
     r->descriptorSetLayoutBindingLimit = 1;
+    // r_apiCoverage heavy (vk_coverage.c): a timestamp query pool and an event
+    r->queryPoolRequestCount = 1;
+    r->maxTimestampQueriesPerPool = 4;
+    r->eventRequestCount = 1;
     // A 2048x2048 texture has 12 mip levels
     r->maxImageViewMipLevels = 12;
     r->maxImageViewArrayLayers = 1;
@@ -589,11 +625,12 @@ static void vk_getObjectReservation(VkDeviceObjectReservationCreateInfo* r)
 
 static qboolean vk_createLogicalDevice(void)
 {
-    static const char* device_extensions[4] = {
+    static const char* device_extensions[5] = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME,
         VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME,
         VK_KHR_COPY_COMMANDS_2_EXTENSION_NAME,
-        VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME
+        VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME,
+        VK_EXT_EXTENDED_DYNAMIC_STATE_2_EXTENSION_NAME
     };
     const uint32_t numDeviceExtensions = sizeof(device_extensions) / sizeof(device_extensions[0]);
 
@@ -667,10 +704,16 @@ static qboolean vk_createLogicalDevice(void)
     sc10_features.pNext = &reservation;
 
     // The features of the API style that this renderer uses
+    VkPhysicalDeviceExtendedDynamicState2FeaturesEXT dynamic_state2_features;
+    memset(&dynamic_state2_features, 0, sizeof(dynamic_state2_features));
+    dynamic_state2_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_2_FEATURES_EXT;
+    dynamic_state2_features.pNext = &sc10_features;
+    dynamic_state2_features.extendedDynamicState2 = VK_TRUE;
+
     VkPhysicalDeviceExtendedDynamicStateFeaturesEXT dynamic_state_features;
     memset(&dynamic_state_features, 0, sizeof(dynamic_state_features));
     dynamic_state_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTENDED_DYNAMIC_STATE_FEATURES_EXT;
-    dynamic_state_features.pNext = &sc10_features;
+    dynamic_state_features.pNext = &dynamic_state2_features;
     dynamic_state_features.extendedDynamicState = VK_TRUE;
 
     VkPhysicalDeviceSynchronization2FeaturesKHR sync2_features;
@@ -684,6 +727,8 @@ static qboolean vk_createLogicalDevice(void)
     vulkan12_features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     vulkan12_features.pNext = &sync2_features;
     vulkan12_features.timelineSemaphore = VK_TRUE;
+    // r_apiCoverage heavy: vkResetQueryPool from the host
+    vulkan12_features.hostQueryReset = VK_TRUE;
 
     VkDeviceCreateInfo device_desc;
     device_desc.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
@@ -746,7 +791,41 @@ static void vk_loadDeviceFunctions(void)
 	INIT_DEVICE_FUNCTION(vkCmdSetCullModeEXT)
 	INIT_DEVICE_FUNCTION(vkCmdSetFrontFaceEXT)
 	INIT_DEVICE_FUNCTION(vkCmdBindPipeline)
-	INIT_DEVICE_FUNCTION(vkCmdBindVertexBuffers)
+	INIT_DEVICE_FUNCTION(vkCreateQueryPool)
+	INIT_DEVICE_FUNCTION(vkResetQueryPool)
+	INIT_DEVICE_FUNCTION(vkCmdWriteTimestamp2KHR)
+	INIT_DEVICE_FUNCTION(vkCmdCopyQueryPoolResults)
+	INIT_DEVICE_FUNCTION(vkCmdUpdateBuffer)
+	INIT_DEVICE_FUNCTION(vkGetSemaphoreCounterValue)
+	INIT_DEVICE_FUNCTION(vkSignalSemaphore)
+	INIT_DEVICE_FUNCTION(vkCreateEvent)
+	INIT_DEVICE_FUNCTION(vkDestroyEvent)
+	INIT_DEVICE_FUNCTION(vkSetEvent)
+	INIT_DEVICE_FUNCTION(vkResetEvent)
+	INIT_DEVICE_FUNCTION(vkGetEventStatus)
+	INIT_DEVICE_FUNCTION(vkCmdSetEvent2KHR)
+	INIT_DEVICE_FUNCTION(vkCmdResetEvent2KHR)
+	INIT_DEVICE_FUNCTION(vkBindBufferMemory2)
+	INIT_DEVICE_FUNCTION(vkBindImageMemory2)
+	INIT_DEVICE_FUNCTION(vkCmdBlitImage2KHR)
+	INIT_DEVICE_FUNCTION(vkCmdClearDepthStencilImage)
+	INIT_DEVICE_FUNCTION(vkCmdSetPrimitiveTopologyEXT)
+	INIT_DEVICE_FUNCTION(vkCmdSetViewportWithCountEXT)
+	INIT_DEVICE_FUNCTION(vkCmdSetScissorWithCountEXT)
+	INIT_DEVICE_FUNCTION(vkCmdBindVertexBuffers2EXT)
+	INIT_DEVICE_FUNCTION(vkCmdSetDepthTestEnableEXT)
+	INIT_DEVICE_FUNCTION(vkCmdSetDepthWriteEnableEXT)
+	INIT_DEVICE_FUNCTION(vkCmdSetDepthCompareOpEXT)
+	INIT_DEVICE_FUNCTION(vkCmdSetDepthBoundsTestEnableEXT)
+	INIT_DEVICE_FUNCTION(vkCmdSetStencilTestEnableEXT)
+	INIT_DEVICE_FUNCTION(vkCmdSetStencilOpEXT)
+	INIT_DEVICE_FUNCTION(vkCmdSetDepthBiasEnableEXT)
+	INIT_DEVICE_FUNCTION(vkCmdSetPrimitiveRestartEnableEXT)
+	INIT_DEVICE_FUNCTION(vkCmdSetStencilCompareMask)
+	INIT_DEVICE_FUNCTION(vkCmdSetStencilWriteMask)
+	INIT_DEVICE_FUNCTION(vkCmdSetStencilReference)
+	INIT_DEVICE_FUNCTION(vkCmdSetBlendConstants)
+	INIT_DEVICE_FUNCTION(vkCmdSetDepthBounds)
 	INIT_DEVICE_FUNCTION(vkCmdBlitImage)
 	INIT_DEVICE_FUNCTION(vkCmdClearAttachments)
 	INIT_DEVICE_FUNCTION(vkCmdCopyImage)
@@ -754,8 +833,6 @@ static void vk_loadDeviceFunctions(void)
 	INIT_DEVICE_FUNCTION(vkCmdDrawIndexed)
 	INIT_DEVICE_FUNCTION(vkCmdPushConstants)
 	INIT_DEVICE_FUNCTION(vkCmdSetDepthBias)
-	INIT_DEVICE_FUNCTION(vkCmdSetScissor)
-	INIT_DEVICE_FUNCTION(vkCmdSetViewport)
 	INIT_DEVICE_FUNCTION(vkCreateBuffer)
 	INIT_DEVICE_FUNCTION(vkCreateCommandPool)
 	INIT_DEVICE_FUNCTION(vkCreateDescriptorPool)
@@ -962,7 +1039,41 @@ void vk_clearProcAddress(void)
 	qvkCmdSetCullModeEXT = NULL;
 	qvkCmdSetFrontFaceEXT = NULL;
 	qvkCmdBindPipeline							= NULL;
-	qvkCmdBindVertexBuffers						= NULL;
+	qvkCreateQueryPool = NULL;
+	qvkResetQueryPool = NULL;
+	qvkCmdWriteTimestamp2KHR = NULL;
+	qvkCmdCopyQueryPoolResults = NULL;
+	qvkCmdUpdateBuffer = NULL;
+	qvkGetSemaphoreCounterValue = NULL;
+	qvkSignalSemaphore = NULL;
+	qvkCreateEvent = NULL;
+	qvkDestroyEvent = NULL;
+	qvkSetEvent = NULL;
+	qvkResetEvent = NULL;
+	qvkGetEventStatus = NULL;
+	qvkCmdSetEvent2KHR = NULL;
+	qvkCmdResetEvent2KHR = NULL;
+	qvkBindBufferMemory2 = NULL;
+	qvkBindImageMemory2 = NULL;
+	qvkCmdBlitImage2KHR = NULL;
+	qvkCmdClearDepthStencilImage = NULL;
+	qvkCmdSetPrimitiveTopologyEXT = NULL;
+	qvkCmdSetViewportWithCountEXT = NULL;
+	qvkCmdSetScissorWithCountEXT = NULL;
+	qvkCmdBindVertexBuffers2EXT = NULL;
+	qvkCmdSetDepthTestEnableEXT = NULL;
+	qvkCmdSetDepthWriteEnableEXT = NULL;
+	qvkCmdSetDepthCompareOpEXT = NULL;
+	qvkCmdSetDepthBoundsTestEnableEXT = NULL;
+	qvkCmdSetStencilTestEnableEXT = NULL;
+	qvkCmdSetStencilOpEXT = NULL;
+	qvkCmdSetDepthBiasEnableEXT = NULL;
+	qvkCmdSetPrimitiveRestartEnableEXT = NULL;
+	qvkCmdSetStencilCompareMask = NULL;
+	qvkCmdSetStencilWriteMask = NULL;
+	qvkCmdSetStencilReference = NULL;
+	qvkCmdSetBlendConstants = NULL;
+	qvkCmdSetDepthBounds = NULL;
 	qvkCmdBlitImage								= NULL;
 	qvkCmdClearAttachments						= NULL;
 	qvkCmdCopyImage								= NULL;
@@ -970,8 +1081,6 @@ void vk_clearProcAddress(void)
 	qvkCmdDrawIndexed							= NULL;
 	qvkCmdPushConstants							= NULL;
 	qvkCmdSetDepthBias							= NULL;
-	qvkCmdSetScissor							= NULL;
-	qvkCmdSetViewport							= NULL;
 	qvkCreateBuffer								= NULL;
 	qvkCreateCommandPool						= NULL;
 	qvkCreateDescriptorPool						= NULL;

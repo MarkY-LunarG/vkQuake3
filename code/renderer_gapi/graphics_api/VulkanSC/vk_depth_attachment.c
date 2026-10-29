@@ -1,5 +1,6 @@
 #include "tr_local.h"
 #include "vk_instance.h"
+#include "vk_coverage.h"
 #include "vk_texture.h"
 #include "vk_cmd.h"
 #include "vk_depth_attachment.h"
@@ -27,6 +28,9 @@ void vk_createDepthAttachment(int Width, int Height)
         desc.samples = VK_SAMPLE_COUNT_1_BIT;
         desc.tiling = VK_IMAGE_TILING_OPTIMAL;
         desc.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+        // r_apiCoverage heavy: the image is cleared with vkCmdClearDepthStencilImage
+        if (vk_coverageFeature("depthclear"))
+            desc.usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
         desc.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
         desc.queueFamilyIndexCount = 0;
         desc.pQueueFamilyIndices = NULL;
@@ -46,7 +50,7 @@ void vk_createDepthAttachment(int Width, int Height)
         alloc_info.memoryTypeIndex = find_memory_type( memory_requirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
         // = vk.idx_depthImgMem;
         VK_CHECK(qvkAllocateMemory(vk.device, &alloc_info, NULL, &vk.depth_image_memory));
-        VK_CHECK(qvkBindImageMemory(vk.device, vk.depth_image, vk.depth_image_memory, 0));
+        vk_bindImageMemory(vk.depth_image, vk.depth_image_memory, 0);
     }
 
 
@@ -92,11 +96,34 @@ void vk_createDepthAttachment(int Width, int Height)
 
     VK_CHECK(qvkBeginCommandBuffer(pCB, &begin_info));
 
-    record_image_layout_transition(pCB, vk.depth_image, 
-            image_aspect_flags, 0, VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | 
-            VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT, 
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    if (vk_coverageFeature("depthclear"))
+    {
+        // r_apiCoverage heavy: clear the image to the far depth before its first use
+        record_image_layout_transition(pCB, vk.depth_image,
+                image_aspect_flags, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkClearDepthStencilValue clear_value = { 1.0f, 0 };
+        VkImageSubresourceRange range;
+        range.aspectMask = image_aspect_flags;
+        range.baseMipLevel = 0;
+        range.levelCount = 1;
+        range.baseArrayLayer = 0;
+        range.layerCount = 1;
+        qvkCmdClearDepthStencilImage(pCB, vk.depth_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &clear_value, 1, &range);
+        record_image_layout_transition(pCB, vk.depth_image,
+                image_aspect_flags, VK_ACCESS_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+                VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    }
+    else
+    {
+        record_image_layout_transition(pCB, vk.depth_image,
+                image_aspect_flags, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT |
+                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+                VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    }
 
 
     VK_CHECK(qvkEndCommandBuffer(pCB));

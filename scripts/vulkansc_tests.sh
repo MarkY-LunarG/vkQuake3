@@ -33,9 +33,13 @@
 #              fog), compared with the desktop Vulkan renderer.
 #   frame      Frame 200 of "demo four" with "timedemo 1", compared with the
 #              desktop Vulkan renderer.
+#   heavy      The scenes and the frame with r_apiCoverage heavy, compared
+#              with the desktop Vulkan renderer. The screenshots of heavy use
+#              a blit to RGBA.
 #   capture    With GFXR_VULKANSC_BUILD: capture "demo four", replay, and check
-#              the capture: no faults, no error messages, and every pipeline of
-#              the pipeline cache in its pipeline cache sources.
+#              the replay log (no error, no lost device) and the capture: no
+#              faults, no error messages, and every pipeline of the pipeline
+#              cache in its pipeline cache sources.
 #
 # A Vulkan SC run passes when the game quits by itself with exit status 0, the
 # log has no validation message, no Vulkan error, no pipeline that is missing
@@ -233,6 +237,16 @@ to_png "${WORK_DIR}/frame_sc" "${WORK_DIR}/png/frame_sc"
 to_png "${WORK_DIR}/frame_desktop" "${WORK_DIR}/png/frame_desktop"
 compare "frame: Vulkan SC against desktop Vulkan" "${WORK_DIR}/png/frame_desktop" "${WORK_DIR}/png/frame_sc"
 
+HEAVY=(+set r_apiCoverage heavy)
+run_game heavy_scenes vulkansc "${SC_ENV[@]}" -- "${HEAVY[@]}" +set fixedtime 16 +exec vulkansc_scenes.cfg
+check_log heavy_scenes "heavy: scenes with r_apiCoverage heavy"
+to_png "${WORK_DIR}/heavy_scenes" "${WORK_DIR}/png/heavy_scenes"
+compare "heavy: scenes against desktop Vulkan" "${WORK_DIR}/png/scenes_desktop" "${WORK_DIR}/png/heavy_scenes"
+run_game heavy_frame vulkansc "${SC_ENV[@]}" -- "${HEAVY[@]}" "${FRAME_ARGS[@]}"
+check_log heavy_frame "heavy: frame 200 of demo four with r_apiCoverage heavy"
+to_png "${WORK_DIR}/heavy_frame" "${WORK_DIR}/png/heavy_frame"
+compare "heavy: frame against desktop Vulkan" "${WORK_DIR}/png/frame_desktop" "${WORK_DIR}/png/heavy_frame"
+
 if [[ -n "${GFXR_VULKANSC_BUILD:-}" ]]; then
 	LAYER="${GFXR_VULKANSC_BUILD}/layer/vulkansc/libvulkansc_gfxrecon.so"
 	REPLAY="${GFXR_VULKANSC_BUILD}/tools/premium_replay/gfxrecon-premium-replay"
@@ -259,11 +273,13 @@ if [[ -n "${GFXR_VULKANSC_BUILD:-}" ]]; then
 		errors="$(sed -n '/Debug Messages:/,/Faults:/s/^[[:space:]]*Error:[[:space:]]*\([0-9]*\).*/\1/p' "${WORK_DIR}/capture_info.log" | head -1)"
 		sources="$(sed -n 's/^[[:space:]]*Pipeline Cache Sources:[[:space:]]*\([0-9]*\).*/\1/p' "${WORK_DIR}/capture_info.log" | head -1)"
 		pipelines="$(wc -l < "${PIPELINE_DIR}/q3_pipelines.txt")"
+		# The replay continues after an error, so its exit status is not enough
+		replay_errors="$(grep -c -E 'ERROR|DEVICE_LOST|context is lost|GPUVM fault' "${WORK_DIR}/replay.log")"
 		if [[ ${replay_exit} -eq 0 && -n "${frames}" && "${faults:-0}" == "0" && "${errors:-0}" == "0" \
-			&& "${sources}" == "${pipelines}" ]]; then
+			&& "${replay_errors}" == "0" && "${sources}" == "${pipelines}" ]]; then
 			echo "PASS  capture: replayed ${frames} frames; no faults or error messages; ${sources} pipeline cache sources"
 		else
-			echo "FAIL  capture: replay exit ${replay_exit}, frames '${frames}', faults '${faults}', error messages '${errors}', pipeline cache sources '${sources}' of ${pipelines}"
+			echo "FAIL  capture: replay exit ${replay_exit}, frames '${frames}', replay errors ${replay_errors}, faults '${faults}', error messages '${errors}', pipeline cache sources '${sources}' of ${pipelines}"
 			FAILURES=$((FAILURES + 1))
 		fi
 	fi

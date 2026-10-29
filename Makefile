@@ -2068,6 +2068,7 @@ Q3VKOBJ = $(Q3GAPIOBJ) \
 # The Vulkan SC renderer: the shared code and graphics_api/VulkanSC
 Q3VKSCOBJ = $(Q3GAPIOBJ) \
   $(B)/renderer_gapi/VulkanSC/vk_pipeline_export.o \
+  $(B)/renderer_gapi/VulkanSC/vk_coverage.o \
   $(B)/renderer_gapi/VulkanSC/VulkanSCPipelineExport.o \
   $(B)/renderer_gapi/VulkanSC/vk_instance.o \
   $(B)/renderer_gapi/VulkanSC/vk_init.o \
